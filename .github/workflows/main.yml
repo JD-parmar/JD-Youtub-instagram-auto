@@ -1,0 +1,47 @@
+name: Video Content Automation
+
+on:
+  # हर दिन IST सुबह 10:00 बजे (UTC 4:30 AM) रन करें
+  schedule:
+    - cron: '30 4 * * *'
+  # मैन्युअल रन की अनुमति दें
+  workflow_dispatch:
+
+jobs:
+  run-automation:
+    runs-on: ubuntu-latest
+    
+    # आवश्यक Secrets को एनवायरनमेंट वेरिएबल्स में लोड करें
+    env:
+      GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
+      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} 
+      INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
+      INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies (API & Libraries)
+        run: |
+          pip install pandas requests google-api-python-client google-auth google-auth-oauthlib 
+          pip install google-genai 
+
+      - name: Run Main Automation Script
+        id: run_script
+        run: python main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}"
+
+      - name: Upload Production Package Artifact
+        uses: actions/upload-artifact@v4
+        if: success() && steps.run_script.outputs.videos_generated > 0
+        with:
+          name: ${{ steps.run_script.outputs.zip_path }}
+          path: ${{ steps.run_script.outputs.zip_path }}
