@@ -1,4 +1,4 @@
-import time
+Import time
 import sys
 import os
 import requests
@@ -33,7 +33,8 @@ STATE_FILE = "./.github/workflows/state.txt"
 MAX_VIDEOS_PER_RUN = 5 
 REQUIRED_COLS = ['Case_Study', 'Heading_Title', 'Prompt', 'Cinematic_Mode', 'Keywords_Tags', 'Video_Type', 'Schedule_Time', 'Instagram_Caption']
 OUTPUT_DIR = f"Production_Package_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-YOUTUBE_UPLOAD_SCOPE = ["https://www.google.api_core.com/auth/youtube.upload"]
+# *सुधार 1:* YouTube अपलोड स्कोप को सही किया गया है।
+YOUTUBE_UPLOAD_SCOPE = ["https://www.googleapis.com/auth/youtube.upload"]
 
 def integrate_gemini_for_content(seo_title, prompt, video_type, tags):
     print("🧠 Gemini AI कंटेंट जनरेशन शुरू...")
@@ -196,7 +197,9 @@ def format_schedule_time(time_str):
         return None 
 
 def get_start_row_index():
-    if os.path.exists(STATE_FILE):
+    # *सुधार 2:* सुनिश्चित करें कि STATE_FILE का पथ मौजूद है, क्योंकि यह .github/workflows/ के अंदर है।
+    # और फाइल को सिर्फ तभी पढ़ें जब वह मौजूद हो, वरना 1 लौटाएँ।
+    if os.path.exists(STATE_FILE) and os.path.getsize(STATE_FILE) > 0:
         with open(STATE_FILE, 'r') as f:
             try:
                 return max(1, int(f.read().strip()))
@@ -232,12 +235,21 @@ def generate_and_process_video(row_index, row):
     tags = [t.strip() for t in str(row.get('Keywords_Tags', '')).split(',') if t.strip()]
     video_type = str(row.get('Video_Type', 'UNKNOWN')).upper()
     schedule_time_str = str(row.get('Schedule_Time', ''))
+    
+    # सुनिश्चित करें कि tags लिस्ट खाली न हो (API एरर से बचने के लिए)
+    if not tags:
+        tags = [t.strip() for t in seo_title.split() if len(t) > 3]
+
     ai_script, youtube_description, thumbnail_idea, instagram_caption = integrate_gemini_for_content(seo_title, prompt, video_type, tags)
+    
     final_prompt = ai_script
     if cinematic_mode:
         final_prompt += f"\n(सिनेमैटिक/VFX इफ़ेक्ट लागू करें। थंबनेल आईडिया: {thumbnail_idea})"
+    
     print(f"\n--- रो {row_index}: प्रोसेसिंग शुरू ---")
     print(f"शीर्षक: {seo_title} | प्रकार: {video_type} | थंबनेल आईडिया: {thumbnail_idea}")
+
+    # --- यहाँ वीडियो रेंडरिंग सिमुलेशन होता है ---
     SIMULATED_RENDER_TIME = 5
     if video_type == 'SHORT':
         video_duration_seconds = random.randint(30, 60)
@@ -245,20 +257,31 @@ def generate_and_process_video(row_index, row):
     else:
         video_duration_seconds = random.randint(300, 600)
         print(f"✅ Long वीडियो के लिए अवधि {video_duration_seconds} सेकंड पर सेट की गई।")
+    
     print(f"⏳ वीडियो रेंडरिंग शुरू... ({SIMULATED_RENDER_TIME} सेकंड सिमुलेशन)")
     time.sleep(SIMULATED_RENDER_TIME)
+
+    # सुरक्षित फ़ाइल नाम बनाना
     safe_title = "".join(c for c in seo_title if c.isalnum() or c in (" ", "_")).rstrip()
-    output_filename = f"{row_index}_{video_type}_{safe_title.replace(' ', '_')[:30]}.mp4"
+    output_filename = f"{row_index}{video_type}{safe_title.replace(' ', '_')[:30]}.mp4"
     temp_video_path = os.path.join('/tmp', output_filename)
     os.makedirs('/tmp', exist_ok=True)
+    
+    # सिमुलेटेड वीडियो फ़ाइल बनाना
     with open(temp_video_path, 'w') as f:
         f.write(f"सिमुलेटेड वीडियो (स्क्रिप्ट से बनाया गया)। अवधि: {video_duration_seconds} सेकंड।")
     print(f"✅ वीडियो लोकल में रेंडर हुआ: {temp_video_path}")
+    # --- रेंडरिंग सिमुलेशन समाप्त ---
+
     uploaded_id = upload_to_youtube(temp_video_path, seo_title, youtube_description, tags, schedule_time_str)
+    
     if uploaded_id and video_type == 'SHORT':
         upload_to_instagram(temp_video_path, instagram_caption)
+    
     os.makedirs(os.path.join(OUTPUT_DIR, 'Videos'), exist_ok=True)
+    # अस्थायी फ़ाइल को उत्पादन पैकेज में कॉपी करना
     shutil.copy(temp_video_path, os.path.join(OUTPUT_DIR, 'Videos', output_filename))
+    
     return output_filename, uploaded_id
 
 def run_automation():
@@ -272,9 +295,12 @@ def run_automation():
         msg = "❌ त्रुटि: Google Sheet CSV URL प्रदान नहीं किया गया।"
         print(msg)
         result["errors"].append(msg)
+        # JSON आउटपुट को प्रिंट करना
         print(json.dumps(result))
         sys.exit(1)
+
     csv_url = sys.argv[1]
+
     try:
         df = fetch_data_from_google_sheet(csv_url)
     except Exception as e:
@@ -287,82 +313,96 @@ def run_automation():
     os.makedirs(os.path.join(OUTPUT_DIR, 'Content'), exist_ok=True)
     start_index = get_start_row_index()
     end_index = start_index + MAX_VIDEOS_PER_RUN
-    iloc_start = max(0, start_index - 1)
+    # DataFrame slicing के लिए इंडेक्स 0 से शुरू होता है, इसलिए -1
+    iloc_start = max(0, start_index - 1) 
     df_to_process = df.iloc[iloc_start:end_index]
-    print(f"\n🎯 {len(df_to_process)} रो (इंडेक्स {start_index} से {end_index-1}) को प्रोसेस किया जा रहा है।")
+    
+    print(f"\n🎯 {len(df_to_process)} रो (इंडेक्स {iloc_start + 1} से {iloc_start + len(df_to_process)}) को प्रोसेस किया जा रहा है।")
     processed_details = []
-    last_processed_index = start_index - 1
+    # अंतिम सफलतापूर्वक प्रोसेस किए गए इंडेक्स को ट्रैक करना
+    last_processed_index = start_index - 1 
 
-    for row_index, row in df_to_process.iterrows():
+    for sheet_row_index, row in df_to_process.iterrows():
         try:
-            video_file, youtube_id = generate_and_process_video(row_index, row)
+            # sheet_row_index 0-आधारित है, इसलिए 1 जोड़कर इसे 1-आधारित (जैसा कि Google Sheet में होता है) मानते हैं
+            process_id = sheet_row_index + 1 
+            video_file, youtube_id = generate_and_process_video(process_id, row)
             processed_details.append({
-                'Sheet Row ID': int(row_index),
+                'Sheet Row ID': int(process_id),
                 'Heading Title': row['Heading_Title'],
                 'Video Filename': video_file,
                 'YouTube ID': youtube_id,
                 'Type': str(row.get('Video_Type', '')).upper(),
                 'Processed Date': datetime.now().isoformat()
             })
-            last_processed_index = int(row_index)
+            last_processed_index = int(process_id)
         except Exception as e:
             tb = traceback.format_exc()
-            print(f"❌ रो {row_index} प्रोसेसिंग में गंभीर त्रुटि: {e}\n{tb}")
-            # record error but continue processing other rows
-            result["errors"].append(f"Row {row_index}: {e}")
+            print(f"❌ रो {process_id} प्रोसेसिंग में गंभीर त्रुटि: {e}\n{tb}")
+            result["errors"].append(f"Row {process_id}: {e}")
+            # त्रुटि होने पर भी आगे बढ़ें
 
     videos_generated = len(processed_details)
     result["videos_generated"] = videos_generated
 
     print(f"\n--- ऑटोमेशन रन समाप्त ---")
 
+    # स्टेट अपडेट करें और आउटपुट फ़ाइलें जनरेट करें, भले ही 0 वीडियो जनरेट हुए हों
+    # क्योंकि शायद यह अंतिम रन था और प्रोसेस करने के लिए और रो नहीं थे।
     if videos_generated > 0:
         next_start_index = last_processed_index + 1
+    else:
+        # यदि कोई वीडियो प्रोसेस नहीं हुआ, तो भी अगले संभावित इंडेक्स को अपडेट करें 
+        # या यदि कोई एरर थी, तो पिछले इंडेक्स को बनाए रखें।
+        next_start_index = start_index 
+        if df.empty or iloc_start >= len(df):
+            print("💡 सभी रो पहले ही प्रोसेस हो चुके हैं।")
+            # यदि प्रोसेस करने के लिए कुछ भी नहीं है, तो अगले इंडेक्स को 1 पर रीसेट करें 
+            # या अंतिम इंडेक्स + 1 पर सेट करें।
+            next_start_index = len(df) + 1 if not df.empty else 1
+        
+    result["next_start_index"] = next_start_index
+
+    if videos_generated > 0:
         try:
             update_state_file(next_start_index)
         except Exception as e:
             print(f"⚠️ स्टेट अपडेट करते समय त्रुटि: {e}")
+            
         df_out = pd.DataFrame(processed_details)
         excel_path = os.path.join(OUTPUT_DIR, 'Content', f"Final_Content_Details_{datetime.now().strftime('%Y%m%d')}.xlsx")
         df_out.to_excel(excel_path, index=False)
         print(f"\n📦 ट्रैकिंग एक्सेल जनरेट हुआ: {excel_path}")
-        # ensure OUTPUT_DIR exists before zipping
+        
         os.makedirs(OUTPUT_DIR, exist_ok=True)
         zip_path = shutil.make_archive(OUTPUT_DIR, 'zip', OUTPUT_DIR)
         print(f"\n📦📦 अंतिम पैकेज तैयार: {zip_path}")
         result["zip_path"] = zip_path
-        result["next_start_index"] = next_start_index
 
-        github_output_path = os.environ.get("GITHUB_OUTPUT")
-        if github_output_path:
-            try:
-                with open(github_output_path, 'a') as f:
-                    f.write(f"zip_path={zip_path}\n")
-                    f.write(f"videos_generated={videos_generated}\n")
-                    f.write(f"next_start_index={next_start_index}\n")
-                print("✅ GitHub Actions Output सफलतापूर्वक सेट किया गया।")
-            except Exception as e:
-                print(f"⚠️ GITHUB_OUTPUT लिखने में त्रुटि: {e}")
-    else:
-        github_output_path = os.environ.get("GITHUB_OUTPUT")
-        if github_output_path:
-            try:
-                with open(github_output_path, 'a') as f:
-                    f.write(f"videos_generated=0\n")
-            except Exception as e:
-                print(f"⚠️ GITHUB_OUTPUT लिखने में त्रुटि: {e}")
+    # GitHub Actions Output सेट करना (JSON प्रिंटिंग से पहले)
+    github_output_path = os.environ.get("GITHUB_OUTPUT")
+    if github_output_path:
+        try:
+            with open(github_output_path, 'a') as f:
+                f.write(f"zip_path={result['zip_path']}\n")
+                f.write(f"videos_generated={videos_generated}\n")
+                # *सुधार 3:* next_start_index को GITHUB_OUTPUT में पास करें, ताकि YAML इसका उपयोग Commit Step में कर सके।
+                f.write(f"next_start_index={next_start_index}\n")
+            print("✅ GitHub Actions Output सफलतापूर्वक सेट किया गया।")
+        except Exception as e:
+            print(f"⚠️ GITHUB_OUTPUT लिखने में त्रुटि: {e}")
 
-    # Always print JSON summary so the workflow step that redirects stdout to script_output.json gets data
+    # JSON सारांश प्रिंट करें
     print(json.dumps(result))
     return result
 
-if __name__ == "__main__":
+if _name_ == "_main_":
     try:
         run_automation()
     except Exception as e:
         tb = traceback.format_exc()
         print(f"Unhandled exception: {e}\n{tb}")
-        # Ensure the workflow still receives a JSON object summarizing the failure
+        # विफलता का सारांश JSON ऑब्जेक्ट प्रिंट करें
         fallback = {
             "videos_generated": 0,
             "zip_path": "",
