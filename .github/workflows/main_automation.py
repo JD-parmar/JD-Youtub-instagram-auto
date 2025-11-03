@@ -10,14 +10,24 @@ import json
 import random 
 
 # AI कंटेंट के लिए Google GenAI लाइब्रेरी
-from google import genai
-from google.genai.errors import APIError
+# यह import optional है — अगर पैकेज उपलब्ध न हो तो फॉलबैक सिमुलेशन चलेगा।
+try:
+    from google import genai
+    from google.genai.errors import APIError
+    GENAI_AVAILABLE = True
+except Exception:
+    GENAI_AVAILABLE = False
 
 # YouTube अपलोडिंग के लिए आवश्यक API क्लाइंट
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+# Token refresh के लिए सही Request क्लास
+try:
+    from google.auth.transport.requests import Request as GoogleAuthRequest
+except Exception:
+    GoogleAuthRequest = None
 
 # --- कॉन्फ़िगरेशन ---
 STATE_FILE = "./state.txt"
@@ -41,14 +51,21 @@ def integrate_gemini_for_content(seo_title, prompt, video_type, tags):
     
     gemini_api_key = os.environ.get("GEMINI_API_KEY")
 
-    if not gemini_api_key:
-        print("❌ GEMINI_API_KEY अनुपलब्ध। AI कंटेंट निःशुल्क सिमुलेट किया जा रहा है।")
+    if not gemini_api_key or not GENAI_AVAILABLE:
+        print("❌ GEMINI_API_KEY अनुपलब्ध या GenAI लाइब्रेरी इंस्टॉल नहीं। AI कंटेंट निःशुल्क सिमुलेट किया जा रहा है।")
 
-        # --- सिमुलेशन आउटपुट ---
-        ai_script = "सिमुलेटेड वीडियो स्क्रिप्ट: (प्रॉम्प्ट के अनुसार 300 शब्दों की स्क्रिप्ट यहाँ आएगी)"
-        youtube_description = f"🤖 AI जनरेटेड डिस्क्रिप्शन: {seo_title} पर केस स्टडी। प्रॉम्प्ट: {prompt}\n\n#AIContent #Automation"
-        thumbnail_idea = f"ट्रेंडिंग थंबनेल टाइटल: '{seo_title}' - {video_type} का सबसे बड़ा रहस्य!"
-        instagram_caption = f"🔥Shorts वायरल! कैप्शन: {seo_title}. टैग्स: {', '.join(tags)} #ViralShorts"
+        # --- सिमुलेशन आउटपुट (सुरक्षित, पूर्ण स्ट्रिंग्स) ---
+        ai_script = (
+            "यह एक सिमुलेटेड हिंदी वीडियो स्क्रिप्ट है। इस स्क्रिप्ट में प्रमुख बिंदु, इंट्रो, "
+            "मेन कॉन्टेन्ट और CTA शामिल होंगे। (यहाँ वास्तविक AI-जनरेटेड टेक्स्ट होना चाहिए।)"
+        )
+        youtube_description = (
+            f"🤖 AI जनरेटेड डिस्क्रिप्शन: केस स्टडी पर वीडियो - {seo_title}\n\n"
+            f"प्रॉम्प्ट: {prompt}\n\n"
+            "HashTags: #AI #Automation"
+        )
+        thumbnail_idea = f"ट्रेंडिंग थंबनेल: {seo_title} — देखें कैसे!"
+        instagram_caption = f"🔥 {seo_title} — देखें और शेयर करें! टैग्स: {', '.join(tags)}"
         
         return ai_script, youtube_description, thumbnail_idea, instagram_caption
     
@@ -56,11 +73,11 @@ def integrate_gemini_for_content(seo_title, prompt, video_type, tags):
     try:
         client = genai.Client(api_key=gemini_api_key)
         
-        main_prompt = f"""
-        एक YouTube वीडियो के लिए कंटेंट जनरेट करें। वीडियो का शीर्षक है: "{seo_title}" और यह इस प्रॉम्प्ट पर आधारित है: "{prompt}"। वीडियो प्रकार: {video_type}।
-        
-        सुनिश्चित करें कि सभी आउटपुट (script, youtube_description, thumbnail_title, instagram_caption) उच्च गुणवत्ता वाले, हिंदी में और आकर्षक हों।
-        """
+        main_prompt = (
+            f"एक YouTube वीडियो के लिए कंटेंट जनरेट करें। वीडियो का शीर्षक है: \"{seo_title}\" "
+            f"और प्रॉम्प्ट है: \"{prompt}\"। आउटपुट JSON फॉर्मेट में लौटाएँ जिसमें keys हों: "
+            "script, youtube_description, thumbnail_title, instagram_caption."
+        )
         
         # JSON Schema को परिभाषित करें
         response_schema = {
@@ -68,19 +85,19 @@ def integrate_gemini_for_content(seo_title, prompt, video_type, tags):
             "properties": {
                 "script": {
                     "type": "STRING",
-                    "description": "वीडियो के लिए विस्तृत हिंदी स्क्रिप्ट (500 शब्दों तक)।"
+                    "description": "वीडियो के लिए विस्तृत हिंदी स्क्रिप्ट।"
                 },
                 "youtube_description": {
                     "type": "STRING",
-                    "description": "YouTube डिस्क्रिप्शन, जिसमें हैशटैग और SEO टाइटल शामिल हों (500 वर्णों तक)।"
+                    "description": "YouTube डिस्क्रिप्शन, जिसमें हैशटैग और SEO टाइटल शामिल हों।"
                 },
                 "thumbnail_title": {
                     "type": "STRING",
-                    "description": "एक ट्रेंडिंग, आकर्षक और क्लिक-योग्य थंबनेल टाइटल आईडिया (हिंदी)।"
+                    "description": "एक ट्रेंडिंग और क्लिक-योग्य थंबनेल टाइटल आईडिया।"
                 },
                 "instagram_caption": {
                     "type": "STRING",
-                    "description": "इंस्टाग्राम रील के लिए छोटा, आकर्षक कैप्शन और ट्रेंडिंग हैशटैग (200 वर्णों तक)।"
+                    "description": "इंस्टाग्राम रील के लिए छोटा, आकर्षक कैप्शन।"
                 }
             },
             "required": ["script", "youtube_description", "thumbnail_title", "instagram_caption"]
@@ -141,8 +158,10 @@ def get_youtube_service():
     )
     
     try:
-        # Access Token को Refresh करें
-        credentials.refresh(requests.Request())
+        # Access Token को Refresh करें (यदि GoogleAuthRequest उपलब्ध है)
+        if GoogleAuthRequest is None:
+            raise RuntimeError("google.auth.transport.requests.Request उपलब्ध नहीं है।")
+        credentials.refresh(GoogleAuthRequest())
         youtube = build('youtube', 'v3', credentials=credentials)
         return youtube
     except Exception as e:
@@ -223,8 +242,12 @@ def upload_to_instagram(video_path, caption):
 def format_schedule_time(time_str):
     """
     समय को IST से UTC में बदलता है और सुनिश्चित करता है कि यह भविष्य में 5 मिनट से अधिक हो।
+    अपेक्षित इनपुट फॉर्मैट: 'HH:MM AM/PM' (उदा. '07:30 PM')
     """
     try:
+        if not time_str or str(time_str).strip() == "":
+            return None
+
         # IST is UTC + 5:30
         IST_OFFSET = timedelta(hours=5, minutes=30)
         
@@ -336,7 +359,8 @@ def generate_and_process_video(row_index, row):
     print(f"⏳ वीडियो रेंडरिंग शुरू... ({SIMULATED_RENDER_TIME} सेकंड सिमुलेशन)")
     time.sleep(SIMULATED_RENDER_TIME) 
     
-    output_filename = f"{row_index}{video_type}{seo_title.replace(' ', '_').lower()[:30]}.mp4"
+    safe_title = "".join(c for c in seo_title if c.isalnum() or c in (" ", "_")).rstrip()
+    output_filename = f"{row_index}_{video_type}_{safe_title.replace(' ', '_')[:30]}.mp4"
     temp_video_path = os.path.join('/tmp', output_filename) 
     
     os.makedirs('/tmp', exist_ok=True)
@@ -380,7 +404,10 @@ def run_automation():
     start_index = get_start_row_index()
     end_index = start_index + MAX_VIDEOS_PER_RUN
     
-    df_to_process = df.iloc[start_index:end_index]
+    # pandas iloc is 0-based; if state file stores 1-based index adjust accordingly.
+    # If start_index looks like 1 and you want to process from the first row (iloc 0), subtract 1.
+    iloc_start = max(0, start_index - 1)
+    df_to_process = df.iloc[iloc_start:end_index]
     
     print(f"\n🎯 {len(df_to_process)} रो (इंडेक्स {start_index} से {end_index-1}) को प्रोसेस किया जा रहा है।")
     
@@ -392,15 +419,15 @@ def run_automation():
             video_file, youtube_id = generate_and_process_video(row_index, row)
             
             processed_details.append({
-                'Sheet Row ID': row_index,
+                'Sheet Row ID': int(row_index),
                 'Heading Title': row['Heading_Title'],
                 'Video Filename': video_file,
                 'YouTube ID': youtube_id,
-                'Type': row['Video_Type'].upper(),
+                'Type': str(row.get('Video_Type', '')).upper(),
                 'Processed Date': datetime.now().isoformat()
             })
             
-            last_processed_index = row_index
+            last_processed_index = int(row_index)
             
         except Exception as e:
             print(f"❌ रो {row_index} प्रोसेसिंग में गंभीर त्रुटि: {e}")
@@ -438,5 +465,5 @@ def run_automation():
                 f.write(f"videos_generated=0\n")
 
 
-if _name_ == "_main_": 
+if __name__ == "__main__": 
     run_automation()
