@@ -1,93 +1,100 @@
-name: Video Content Automation
+# CRITICAL FIX: GITHUB_TOKEN को 'contents: write' अनुमति दें ताकि यह 'state.txt' को कमिट कर सके
+permissions:
+  contents: write 
+  
+env:
+  GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
+  YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+  YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+  YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
-on:
-  schedule:
-    - cron: '30 3 * * 1'  # Every Monday 9:00 AM IST (03:30 UTC)
-  workflow_dispatch:
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
+    with:
+      token: ${{ secrets.GITHUB_TOKEN }} 
 
-jobs:
-  generate_videos:
-    runs-on: ubuntu-latest
+  - name: Set up Python
+    uses: actions/setup-python@v5
+    with:
+      python-version: '3.11'
 
-    permissions:
-      contents: write
+  - name: Install system & Python dependencies (API & Libraries)
+    run: |
+      # jq JSON प्रोसेसिंग के लिए आवश्यक है
+      sudo apt-get update && sudo apt-get install -y jq
+      pip install --upgrade pip
+      # आवश्यक Python लाइब्रेरीज इंस्टॉल करें
+      pip install pandas requests google-api-python-client google-auth google-auth-oauthlib google-genai moviepy
+    shell: bash
 
-    env:
-      GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
-      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+  - name: Run Main Automation Script and Get Outputs
+    id: run_script
+    run: |
+      set -euo pipefail
+      echo "Running main_automation.py..."
+      # स्क्रिप्ट आउटपुट को JSON के रूप में कैप्चर करें
+      python .github/workflows/main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}" > script_output.json
+      
+      # JSON आउटपुट को पार्स करें
+      videos=$(jq -r '.videos_generated // 0' script_output.json)
+      zip_path=$(jq -r '.zip_path // ""' script_output.json)
+      next_index=$(jq -r '.next_start_index // 1' script_output.json)
+      
+      echo "Parsed outputs: videos_generated=$videos, zip_path=$zip_path, next_start_index=$next_index"
+      
+      # GitHub Actions के लिए आउटपुट सेट करें
+      echo "videos_generated=$videos" >> $GITHUB_OUTPUT
+      echo "zip_path=$zip_path" >> $GITHUB_OUTPUT
+      echo "next_start_index=$next_index" >> $GITHUB_OUTPUT
+    shell: bash
+    
+  # --- 'state.txt' कमिट स्टेप ---
+  - name: Commit State File for Next Run
+    if: success() && steps.run_script.outputs.videos_generated != '0' 
+    run: |
+      git config --global user.name "github-actions[bot]"
+      git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      git add .github/workflows/state.txt
+      git commit -m "Automation: Updated state file to index ${{ steps.run_script.outputs.next_start_index }}" || true
+      git push
+    shell: bash
 
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v3
-
-      - name: Debug: List files
-        run: |
-          pwd
-          ls -lah
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq
-          pip install --upgrade pip
-          pip install pandas requests google-api-python-client google-auth google-auth-oauthlib google-genai moviepy
-
-      - name: Run Main Automation Script
-        id: run_script
-        run: |
-          set -euo pipefail
-          echo "Running main_automation.py..."
-          python main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}" > script_output.json
-
-          videos=$(jq -r '.videos_generated // 0' script_output.json)
-          zip=$(jq -r '.zip_path // ""' script_output.json)
-          next_index=$(jq -r '.next_start_index // 1' script_output.json)
-
-          echo "videos_generated=$videos"
-          echo "zip_path=$zip"
-          echo "next_start_index=$next_index"
-
-          echo "videos_generated=$videos" >> $GITHUB_OUTPUT
-          echo "zip_path=$zip" >> $GITHUB_OUTPUT
-          echo "next_start_index=$next_index" >> $GITHUB_OUTPUT
-
-      - name: Commit Updated State
-        if: success() && steps.run_script.outputs.videos_generated != '0'
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add state.txt
-          git commit -m "Automation: Updated state to index ${{ steps.run_script.outputs.next_start_index }}" || true
-          git push
-
-      - name: Verify ZIP before upload
-        if: success() && steps.run_script.outputs.videos_generated != '0'
-        run: |
-          echo "ZIP Path: ${{ steps.run_script.outputs.zip_path }}"
-          ls -lah
-          if [ ! -f "${{ steps.run_script.outputs.zip_path }}" ]; then
-            echo "ERROR: ZIP file not found!"
-            exit 1
-          fi
-
-      - name: Upload Videos to YouTube
-        if: success() && steps.run_script.outputs.videos_generated != '0'
-        run: |
-          echo "Running YouTube Upload..."
-          python main_automation.py upload-youtube "${{ steps.run_script.outputs.zip_path }}"
-
-      - name: Upload Production Artifact
-        uses: actions/upload-artifact@v4
-        if: success() && steps.run_script.outputs.videos_generated != '0' && steps.run_script.outputs.zip_path != ''
-        with:
-          name: Production-Package-${{ github.run_id }}
-          path: ${{ steps.run_script.outputs.zip_path }}
-          if-no-files-found: error
-          compression-level: 6
+  # --- Artifact अपलोड स्टेप ---
+  - name: Upload Production Package Artifact
+    uses: actions/upload-artifact@v4
+    # यह केवल तभी चलेगा जब वीडियो जनरेट हुए हों, और zip_path मौजूद हो।
+    if: success() && steps.run_script.outputs.videos_generated != '0' && steps.run_script.outputs.zip_path != ''
+    with:
+      name: Production-Package-${{ github.run_id }}
+      path: ${{ steps.run_script.outputs.zip_path }} 
+      if-no-files-found: error # यदि फ़ाइल नहीं मिली तो स्पष्ट रूप से विफल हो
+      compression-level: 6
+      
+  # --- YouTube अपलोड स्टेप (अब ZIP से वीडियो निकालता है) ---
+  - name: Upload Videos to YouTube
+    if: success() && steps.run_script.outputs.videos_generated != '0' 
+    run: |
+      echo "Running YouTube Upload script..."
+      
+      # ZIP फ़ाइल का नाम प्राप्त करें
+      ZIP_FILE_PATH="${{ steps.run_script.outputs.zip_path }}"
+      
+      # सुनिश्चित करें कि ZIP फ़ाइल मौजूद है
+      if [ ! -f "$ZIP_FILE_PATH" ]; then
+        echo "ERROR: ZIP file not found at $ZIP_FILE_PATH. Skipping YouTube upload."
+        exit 1
+      fi
+      
+      # ZIP फ़ाइल को निकालें (unzip करें) ताकि वीडियो फ़ाइलें मिल सकें
+      unzip "$ZIP_FILE_PATH" -d ./temp_upload_dir
+      
+      # YouTube अपलोड स्टेप चलाएं, वीडियो और स्क्रिप्ट फ़ाइल को पास करते हुए।
+      # main_automation.py को अब ZIP के अंदर की फ़ाइलें मिलेंगी।
+      # चूंकि यह एक लूप हो सकता है, हम एक ही फ़ाइल को अपलोड करने का मॉक करेंगे।
+      # आपके Python कोड में अब ZIP से निकाली गई फ़ाइलों को पढ़ने का तर्क होना चाहिए।
+      
+      # अब Python फ़ंक्शन को ZIP फ़ाइल का नाम पास करें ताकि वह खुद ही एक्सट्रैक्टेड फ़ाइलों को खोज सके।
+      python .github/workflows/main_automation.py upload-youtube "$ZIP_FILE_PATH"
+    shell: bash
