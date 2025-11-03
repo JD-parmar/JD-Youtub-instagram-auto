@@ -6,7 +6,7 @@ import pandas as pd
 import shutil
 from io import StringIO
 from datetime import datetime, timedelta, timezone 
-import json
+import json 
 import random 
 
 # AI कंटेंट के लिए Google GenAI लाइब्रेरी
@@ -35,14 +35,16 @@ YOUTUBE_UPLOAD_SCOPE = ["https://www.googleapis.com/auth/youtube.upload"]
 def integrate_gemini_for_content(seo_title, prompt, video_type, tags):
     """
     Gemini API का उपयोग करके कंटेंट, कैप्शन, थंबनेल टाइटल जनरेट करता है।
+    API Key न होने पर यह चरण निःशुल्क सिमुलेट होता है।
     """
     print("🧠 Gemini AI कंटेंट जनरेशन शुरू...")
     
     gemini_api_key = os.environ.get("GEMINI_API_KEY")
+
     if not gemini_api_key:
-        print("❌ GEMINI_API_KEY अनुपलब्ध। AI कंटेंट सिमुलेट किया जा रहा है।")
-        
-        # --- सिमुलेशन आउटपुट (जब तक Key नहीं है) ---
+        print("❌ GEMINI_API_KEY अनुपलब्ध। AI कंटेंट निःशुल्क सिमुलेट किया जा रहा है।")
+
+        # --- सिमुलेशन आउटपुट ---
         ai_script = "सिमुलेटेड वीडियो स्क्रिप्ट: (प्रॉम्प्ट के अनुसार 300 शब्दों की स्क्रिप्ट यहाँ आएगी)"
         youtube_description = f"🤖 AI जनरेटेड डिस्क्रिप्शन: {seo_title} पर केस स्टडी। प्रॉम्प्ट: {prompt}\n\n#AIContent #Automation"
         thumbnail_idea = f"ट्रेंडिंग थंबनेल टाइटल: '{seo_title}' - {video_type} का सबसे बड़ा रहस्य!"
@@ -50,39 +52,66 @@ def integrate_gemini_for_content(seo_title, prompt, video_type, tags):
         
         return ai_script, youtube_description, thumbnail_idea, instagram_caption
     
-    # --- वास्तविक Gemini API कॉल ---
+    # --- वास्तविक Gemini API कॉल (Structured JSON Output) ---
     try:
         client = genai.Client(api_key=gemini_api_key)
         
         main_prompt = f"""
         एक YouTube वीडियो के लिए कंटेंट जनरेट करें। वीडियो का शीर्षक है: "{seo_title}" और यह इस प्रॉम्प्ट पर आधारित है: "{prompt}"। वीडियो प्रकार: {video_type}।
         
-        मुझे निम्नलिखित 4 भाग चाहिए, हर भाग को स्पष्ट रूप से लेबल करें:
-        1. *SCRIPT:* वीडियो की पूरी स्क्रिप्ट (हिंदी, 500 शब्दों तक)।
-        2. *YT_DESC:* YouTube डिस्क्रिप्शन (हिंदी, हैशटैग सहित, 500 वर्णों तक)।
-        3. *THUMBNAIL:* एक ट्रेंडिंग, आकर्षक थंबनेल टाइटल आईडिया (हिंदी)।
-        4. *IG_CAPTION:* इंस्टाग्राम रील कैप्शन और ट्रेंडिंग हैशटैग (हिंदी, 200 वर्णों तक)।
+        सुनिश्चित करें कि सभी आउटपुट (script, youtube_description, thumbnail_title, instagram_caption) उच्च गुणवत्ता वाले, हिंदी में और आकर्षक हों।
         """
         
+        # JSON Schema को परिभाषित करें
+        response_schema = {
+            "type": "OBJECT",
+            "properties": {
+                "script": {
+                    "type": "STRING",
+                    "description": "वीडियो के लिए विस्तृत हिंदी स्क्रिप्ट (500 शब्दों तक)।"
+                },
+                "youtube_description": {
+                    "type": "STRING",
+                    "description": "YouTube डिस्क्रिप्शन, जिसमें हैशटैग और SEO टाइटल शामिल हों (500 वर्णों तक)।"
+                },
+                "thumbnail_title": {
+                    "type": "STRING",
+                    "description": "एक ट्रेंडिंग, आकर्षक और क्लिक-योग्य थंबनेल टाइटल आईडिया (हिंदी)।"
+                },
+                "instagram_caption": {
+                    "type": "STRING",
+                    "description": "इंस्टाग्राम रील के लिए छोटा, आकर्षक कैप्शन और ट्रेंडिंग हैशटैग (200 वर्णों तक)।"
+                }
+            },
+            "required": ["script", "youtube_description", "thumbnail_title", "instagram_caption"]
+        }
+
         response = client.models.generate_content(
             model='gemini-2.5-flash',
-            contents=main_prompt
+            contents=main_prompt,
+            config={
+                "response_mime_type": "application/json",
+                "response_schema": response_schema
+            }
         )
         
-        text = response.text
+        # JSON स्ट्रिंग को डिक्शनरी में पार्स करें
+        ai_data = json.loads(response.text)
         
-        # आउटपुट को पार्स करें (यहां मान लें कि AI आउटपुट को सही ढंग से लेबल करेगा)
-        script = text.split('*SCRIPT:')[-1].split('YT_DESC:*')[0].strip()
-        description = text.split('*YT_DESC:')[-1].split('THUMBNAIL:*')[0].strip()
-        thumbnail = text.split('*THUMBNAIL:')[-1].split('IG_CAPTION:*')[0].strip()
-        caption = text.split('*IG_CAPTION:*')[-1].strip()
+        script = ai_data.get('script', '')
+        description = ai_data.get('youtube_description', '')
+        thumbnail = ai_data.get('thumbnail_title', '')
+        caption = ai_data.get('instagram_caption', '')
 
-        print("✅ Gemini AI कंटेंट सफलतापूर्वक जनरेट हुआ।")
+        if not all([script, description, thumbnail, caption]):
+            raise ValueError("AI ने JSON लौटाया लेकिन कुछ फ़ील्ड खाली हैं।")
+
+        print("✅ Gemini AI कंटेंट सफलतापूर्वक JSON फॉर्मेट में जनरेट हुआ (API का उपयोग करके)।")
         return script, description, thumbnail, caption
         
-    except APIError as e:
-        print(f"❌ Gemini API त्रुटि: {e}. सिमुलेशन पर वापस जा रहा है।")
-        # API विफल होने पर सिमुलेशन आउटपुट रिटर्न करें
+    except (APIError, json.JSONDecodeError, ValueError) as e:
+        # API या पार्सिंग त्रुटियों को संभालें और सिमुलेशन पर वापस जाएं
+        print(f"❌ Gemini API या पार्सिंग त्रुटि: {e}. सिमुलेशन पर वापस जा रहा है।")
         return integrate_gemini_for_content(seo_title, prompt, video_type, tags) 
     except Exception as e:
         print(f"❌ Gemini अनपेक्षित त्रुटि: {e}. सिमुलेशन पर वापस जा रहा है।")
@@ -93,12 +122,13 @@ def integrate_gemini_for_content(seo_title, prompt, video_type, tags):
 
 def get_youtube_service():
     """ YouTube API सर्विस को OAuth 2.0 क्रेडेंशियल के साथ इनिशियलाइज़ करता है। """
+    
     client_id = os.environ.get("YOUTUBE_CLIENT_ID")
     client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
     refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN")
 
     if not client_id or not client_secret or not refresh_token:
-        print("❌ YouTube Secrets अनुपलब्ध। अपलोड सिमुलेट किया जाएगा।")
+        print("❌ YouTube Secrets अनुपलब्ध। अपलोड निःशुल्क सिमुलेट किया जाएगा।")
         return None
 
     credentials = Credentials(
@@ -127,7 +157,8 @@ def upload_to_youtube(video_path, title, description, tags, schedule_time_str):
     
     youtube = get_youtube_service()
     if not youtube:
-        # यदि सेवा उपलब्ध नहीं है, तो सिमुलेशन ID लौटाएँ
+        # यदि सेवा उपलब्ध नहीं है (सिमुलेशन रन), तो सिमुलेशन ID लौटाएँ
+        print("⚠️ सिमुलेशन: वीडियो अपलोड किए बिना ID लौटाई जा रही है।")
         return f"YOUTUBE_ID_SIMULATED_{random.randint(1000, 9999)}"
 
     schedule_iso = format_schedule_time(schedule_time_str)
@@ -190,22 +221,39 @@ def upload_to_instagram(video_path, caption):
     return True
 
 def format_schedule_time(time_str):
+    """
+    समय को IST से UTC में बदलता है और सुनिश्चित करता है कि यह भविष्य में 5 मिनट से अधिक हो।
+    """
     try:
-        now_ist = datetime.now() 
-        time_obj = datetime.strptime(time_str.strip(), '%I:%M %p') 
+        # IST is UTC + 5:30
+        IST_OFFSET = timedelta(hours=5, minutes=30)
         
+        # 1. Get current time in UTC (Runner's default) and calculate current IST
+        now_utc = datetime.now(timezone.utc)
+        now_ist = now_utc + IST_OFFSET 
+
+        # 2. Parse the time part from the string
+        time_obj = datetime.strptime(time_str.strip(), '%I:%M %p').time() 
+        
+        # 3. Combine today's IST date with the target time
         scheduled_datetime_ist = now_ist.replace(
             hour=time_obj.hour, 
             minute=time_obj.minute, 
             second=0, 
             microsecond=0
-        )
-        
-        if scheduled_datetime_ist <= now_ist + timedelta(minutes=5):
+        ).replace(tzinfo=None) # temporarily remove timezone for easy comparison
+
+        # Ensure the current 'now_ist' also has no tzinfo for safe comparison
+        now_ist_naive = now_ist.replace(tzinfo=None)
+
+        # 4. If the scheduled time is in the past or too soon, schedule for tomorrow
+        if scheduled_datetime_ist <= now_ist_naive + timedelta(minutes=5):
             scheduled_datetime_ist += timedelta(days=1)
 
-        utc_datetime = scheduled_datetime_ist - timedelta(hours=5, minutes=30) # IST = UTC + 5:30
-
+        # 5. Convert the final naive IST time to UTC (by subtracting offset)
+        utc_datetime = scheduled_datetime_ist - IST_OFFSET
+        
+        # YouTube API के लिए 'Z' फॉर्मेट में return करें
         return utc_datetime.isoformat() + 'Z' 
 
     except Exception as e:
@@ -216,6 +264,7 @@ def get_start_row_index():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, 'r') as f:
             try:
+                # राज्य फ़ाइल को सुरक्षित रूप से संख्या के रूप में पढ़ें
                 return max(1, int(f.read().strip())) 
             except ValueError:
                 return 1
@@ -358,6 +407,8 @@ def run_automation():
             
     videos_generated = len(processed_details)
     
+    print(f"\n--- ऑटोमेशन रन समाप्त ---")
+    
     if videos_generated > 0:
         next_start_index = last_processed_index + 1
         update_state_file(next_start_index)
@@ -370,16 +421,22 @@ def run_automation():
         zip_path = shutil.make_archive(OUTPUT_DIR, 'zip', OUTPUT_DIR)
         print(f"\n📦📦 अंतिम पैकेज तैयार: {zip_path}")
         
-    print(f"\n--- ऑटोमेशन रन समाप्त ---")
+        # --- GITHUB ACTIONS OUTPUT LOGIC (नया सिंटैक्स) ---
+        github_output_path = os.environ.get("GITHUB_OUTPUT")
+        if github_output_path:
+            with open(github_output_path, 'a') as f:
+                f.write(f"zip_path={OUTPUT_DIR}.zip\n")
+                f.write(f"videos_generated={videos_generated}\n")
+                f.write(f"next_start_index={next_start_index}\n")
+            print("✅ GitHub Actions Output सफलतापूर्वक सेट किया गया।")
     
-    # GitHub Actions आउटपुट सेट करें
-    if videos_generated > 0:
-        print(f"::set-output name=zip_path::{OUTPUT_DIR}.zip")
-        print(f"::set-output name=videos_generated::{videos_generated}")
-        print(f"::set-output name=next_start_index::{next_start_index}")
-    else:
-        print(f"::set-output name=videos_generated::0")
+    elif videos_generated == 0:
+        # अगर कोई वीडियो जनरेट नहीं हुआ, तो भी आउटपुट सेट करें
+        github_output_path = os.environ.get("GITHUB_OUTPUT")
+        if github_output_path:
+            with open(github_output_path, 'a') as f:
+                f.write(f"videos_generated=0\n")
 
 
-if _name_ == "_main_":
+if _name_ == "_main_": 
     run_automation()
