@@ -1,20 +1,16 @@
 name: Video Content Automation
 
 on:
-  # यह वर्कफ़्लो को हर सोमवार सुबह 09:00 बजे IST (03:30 UTC) पर चलाता है 
   schedule:
-    - cron: '30 3 * * 1' 
-  # वर्कफ़्लो को GitHub UI से मैन्युअल रूप से चलाने की अनुमति देता है
+    - cron: '30 3 * * 1'   # Every Monday 9:00 AM IST (03:30 UTC)
   workflow_dispatch:
 
-# CRITICAL FIX: GITHUB_TOKEN को 'contents: write' अनुमति दें ताकि यह 'state.txt' को कमिट कर सके
-permissions:
-  contents: write 
-  
 jobs:
   build-and-run:
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: write
+
     env:
       GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
       YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
@@ -26,78 +22,76 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          # GITHUB_TOKEN का उपयोग करके कमिट करने की अनुमति सुनिश्चित करें
-          token: ${{ secrets.GITHUB_TOKEN }} 
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Install system & Python dependencies (API & Libraries)
+      - name: Install dependencies
         run: |
-          # jq JSON प्रोसेसिंग के लिए आवश्यक है
           sudo apt-get update && sudo apt-get install -y jq
           pip install --upgrade pip
-          # google-genai, pandas, requests, google-api-python-client (YouTube API के लिए)
-          # moviepy वीडियो बनाने के लिए
           pip install pandas requests google-api-python-client google-auth google-auth-oauthlib google-genai moviepy
         shell: bash
 
-      - name: Run Main Automation Script and Get Outputs
+      - name: Run Main Automation Script
         id: run_script
         run: |
           set -euo pipefail
           echo "Running main_automation.py..."
-          # स्क्रिप्ट आउटपुट को JSON के रूप में कैप्चर करें
-          python .github/workflows/main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}" > script_output.json
-          
-          # JSON आउटपुट को पार्स करें
+          # Run your automation and capture output as JSON
+          python main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}" > script_output.json
+
+          # Parse JSON for values
           videos=$(jq -r '.videos_generated // 0' script_output.json)
           zip=$(jq -r '.zip_path // ""' script_output.json)
           next_index=$(jq -r '.next_start_index // 1' script_output.json)
-          
-          echo "Parsed outputs: videos_generated=$videos, zip_path=$zip, next_start_index=$next_index"
-          
-          # GitHub Actions के लिए आउटपुट सेट करें
+
+          echo "videos_generated=$videos"
+          echo "zip_path=$zip"
+          echo "next_start_index=$next_index"
+
+          # Export as step outputs
           echo "videos_generated=$videos" >> $GITHUB_OUTPUT
           echo "zip_path=$zip" >> $GITHUB_OUTPUT
           echo "next_start_index=$next_index" >> $GITHUB_OUTPUT
         shell: bash
-        
-      # --- 'state.txt' कमिट स्टेप ---
-      - name: Commit State File for Next Run
-        # यह केवल तभी चलेगा जब स्क्रिप्ट सफल हो और कम से कम 1 वीडियो जनरेट हुआ हो
-        if: success() && steps.run_script.outputs.videos_generated != '0' 
+
+      - name: Commit Updated State
+        if: success() && steps.run_script.outputs.videos_generated != '0'
         run: |
-          # कमिट करने के लिए बॉट की पहचान सेट करें
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # 'state.txt' फ़ाइल को जोड़ें 
-          git add .github/workflows/state.txt
-          # यदि कोई बदलाव नहीं है, तो कमिट को विफल होने से रोकने के लिए '|| true'
-          git commit -m "Automation: Updated state file to index ${{ steps.run_script.outputs.next_start_index }}" || true
+          git add state.txt
+          git commit -m "Automation: Updated state to index ${{ steps.run_script.outputs.next_start_index }}" || true
           git push
         shell: bash
 
-      # --- YouTube अपलोड स्टेप (MAIN GOAL) ---
-      - name: Upload Videos to YouTube
-        # यह केवल तभी चलेगा जब स्क्रिप्ट सफल हो और वीडियो जनरेट हुए हों
-        if: success() && steps.run_script.outputs.videos_generated != '0' 
+      - name: Verify ZIP before upload
+        if: success() && steps.run_script.outputs.videos_generated != '0'
         run: |
-          echo "Running YouTube Upload script..."
-          # यह main_automation.py में run_youtube_upload_step() को चलाएगा
-          python .github/workflows/main_automation.py upload-youtube 
+          echo "ZIP Path: ${{ steps.run_script.outputs.zip_path }}"
+          ls -lah
+          if [ ! -f "${{ steps.run_script.outputs.zip_path }}" ]; then
+            echo "ERROR: ZIP file not found!"
+            exit 1
+          fi
         shell: bash
-        
-      # --- Artifact अपलोड स्टेप ---
-      - name: Upload Production Package Artifact
+
+      - name: Upload Videos to YouTube
+        if: success() && steps.run_script.outputs.videos_generated != '0'
+        run: |
+          echo "Running YouTube Upload..."
+          python main_automation.py upload-youtube "${{ steps.run_script.outputs.zip_path }}"
+        shell: bash
+
+      - name: Upload Production Artifact
         uses: actions/upload-artifact@v4
-        # यह केवल तभी चलेगा जब वीडियो जनरेट हुए हों और ZIP पथ मौजूद हो
         if: success() && steps.run_script.outputs.videos_generated != '0' && steps.run_script.outputs.zip_path != ''
         with:
           name: Production-Package-${{ github.run_id }}
-          # यह path: production_package.zip को इंगित करता है
-          path: ${{ steps.run_script.outputs.zip_path }} 
-          if-no-files-found: warn
+          path: ${{ steps.run_script.outputs.zip_path }}
+          if-no-files-found: error
           compression-level: 6
