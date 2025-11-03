@@ -20,7 +20,7 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 # --- कॉन्फ़िगरेशन ---
-STATE_FILE = "state.txt"
+STATE_FILE = "JD-Youtub-instagram-auto/state.txt"
 MAX_VIDEOS_PER_RUN = 5 
 # Google Sheet के सभी आवश्यक कॉलम
 REQUIRED_COLS = ['Case_Study', 'Heading_Title', 'Prompt', 'Cinematic_Mode', 'Keywords_Tags', 'Video_Type', 'Schedule_Time', 'Instagram_Caption']
