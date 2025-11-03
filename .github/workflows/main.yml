@@ -97,7 +97,6 @@ jobs:
         if: success() && steps.run_script.outputs.videos_generated != '0' && steps.run_script.outputs.zip_path != ''
         with:
           name: Production-Package-${{ github.run_id }}
-          # यह path: production_package.zip को इंगित करता है
-          path: ${{ steps.run_script.outputs.zip_path }} 
+          path: ${{ steps.run_script.outputs.zip_path }}
           if-no-files-found: warn
           compression-level: 6
