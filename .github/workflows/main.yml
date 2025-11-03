@@ -1,85 +1,84 @@
-# यह वर्कफ़्लो GitHub Actions टैब में 'JD YouTube Insta Automation' नाम से दिखाई देगा।
-name: JD YouTube Insta Automation
+# यह सुनिश्चित करने के लिए कि कमिट स्टेप (git push) काम करे, यहां permissions जोड़ें
+permissions:
+  contents: write # git push के लिए आवश्यक
+  
+# आवश्यक Secrets को एनवायरनमेंट वेरिएबल्स में लोड करें।
+env:
+  GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
+  YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+  YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+  YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} 
 
-# 'workflow_dispatch' इसे Actions टैब से मैन्युअल रूप से चलाने की अनुमति देता है।
-on:
-  workflow_dispatch:
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
+    # यह आवश्यक है ताकि बाद में git push/commit काम कर सके
+    with:
+      token: ${{ secrets.GITHUB_TOKEN }}
+  
+  - name: Set up Python
+    uses: actions/setup-python@v5
+    with:
+      # Python को 3.11 पर सेट करें।
+      python-version: '3.11'
 
-jobs:
-  build-and-run:
-    runs-on: ubuntu-latest
-    
-    # आवश्यक Secrets को एनवायरनमेंट वेरिएबल्स में लोड करें।
-    env:
-      GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
-      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} 
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        # यह आवश्यक है ताकि बाद में git push/commit काम कर सके
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+  - name: Install system & Python dependencies (API & Libraries)
+    run: |
+      # सुनिश्चित करें कि jq (JSON पार्सिंग के लिए) और अन्य टूल इंस्टॉल हों
+      sudo apt-get update && sudo apt-get install -y jq
+      pip install --upgrade pip
+      # सभी आवश्यक लाइब्रेरीज़ को एक साथ इंस्टॉल करें
+      pip install pandas requests google-api-python-client google-auth google-auth-oauthlib google-genai openpyxl
+    shell: bash
+
+  # 1. Main Automation Script चलाएं और JSON आउटपुट पार्स करें
+  - name: Run Main Automation Script
+    id: run_script
+    run: |
+      set -euo pipefail
+      echo "Running main_automation.py..."
+      # Python स्क्रिप्ट को चलाएँ और आउटपुट को एक JSON फ़ाइल में सेव करें
+      python .github/workflows/main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}" > script_output.json
       
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          # Python को 3.11 पर रखें जैसा आपने तय किया है, ताकि नई लाइब्रेरीज़ का सपोर्ट मिल सके।
-          python-version: '3.11'
-
-      - name: Install system & Python dependencies (API & Libraries)
-        run: |
-          # सुनिश्चित करें कि jq (JSON पार्सिंग के लिए) और अन्य टूल इंस्टॉल हों
-          sudo apt-get update && sudo apt-get install -y jq
-          pip install --upgrade pip
-          # सभी आवश्यक लाइब्रेरीज़ को एक साथ इंस्टॉल करें
-          pip install pandas requests google-api-python-client google-auth google-auth-oauthlib google-genai
-        shell: bash
-
-      - name: Run Main Automation Script
-        id: run_script
-        run: |
-          set -euo pipefail
-          echo "Running main_automation.py..."
-          # Python स्क्रिप्ट को चलाएँ और आउटपुट को एक JSON फ़ाइल में सेव करें
-          python .github/workflows/main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}" > script_output.json
-          
-          # JSON आउटपुट को पार्स करें
-          videos=$(jq -r '.videos_generated // 0' script_output.json)
-          zip=$(jq -r '.zip_path // ""' script_output.json)
-          next_index=$(jq -r '.next_start_index // 1' script_output.json)
-          
-          echo "Parsed outputs: videos_generated=$videos, zip_path=$zip, next_start_index=$next_index"
-          
-          # GITHUB_OUTPUT को सेट करें ताकि इसे अगले steps में उपयोग किया जा सके
-          echo "videos_generated=$videos" >> $GITHUB_OUTPUT
-          echo "zip_path=$zip" >> $GITHUB_OUTPUT
-          echo "next_start_index=$next_index" >> $GITHUB_OUTPUT
-        shell: bash
-        
-      # *सुधार 3:* state.txt को GitHub में कमिट करने के लिए नया स्टेप
-      - name: Commit State File for Next Run
-        # यह तभी रन हो जब स्क्रिप्ट सफल हो और कम से कम एक वीडियो प्रोसेस हुआ हो
-        if: success() && steps.run_script.outputs.next_start_index != '' && steps.run_script.outputs.videos_generated != '0'
-        run: |
-          # Git कॉन्फ़िगरेशन सेट करें
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
-          # state.txt फ़ाइल को स्टेज करें और कमिट करें
-          git add .github/workflows/state.txt
-          # यदि कोई बदलाव नहीं है तो कमिट फ़ेल न हो, इसलिए '|| true' का उपयोग करें
-          git commit -m "Automation: Updated state file to index ${{ steps.run_script.outputs.next_start_index }}" || true
-          git push
-        shell: bash
+      # JSON आउटपुट को पार्स करें
+      videos=$(jq -r '.videos_generated // 0' script_output.json)
+      zip=$(jq -r '.zip_path // ""' script_output.json)
+      next_index=$(jq -r '.next_start_index // 1' script_output.json)
+      
+      echo "Parsed outputs: videos_generated=$videos, zip_path=$zip, next_start_index=$next_index"
+      
+      # GITHUB_OUTPUT को सेट करें ताकि इसे अगले steps में उपयोग किया जा सके
+      echo "videos_generated=$videos" >> $GITHUB_OUTPUT
+      echo "zip_path=$zip" >> $GITHUB_OUTPUT
+      echo "next_index=$next_index" >> $GITHUB_OUTPUT
+    shell: bash
+    
+  # 2. state.txt को GitHub में कमिट करने के लिए स्टेप
+  - name: Commit State File for Next Run
+    # यह तभी रन हो जब स्क्रिप्ट सफल हो और कम से कम एक वीडियो प्रोसेस हुआ हो
+    if: success() && steps.run_script.outputs.next_start_index != '' && steps.run_script.outputs.videos_generated != '0'
+    run: |
+      # Git कॉन्फ़िगरेशन सेट करें
+      git config --global user.name "github-actions[bot]"
+      git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      
+      # state.txt फ़ाइल को स्टेज करें और कमिट करें
+      git add .github/workflows/state.txt
+      # यदि कोई बदलाव नहीं है तो कमिट फ़ेल न हो
+      git commit -m "Automation: Updated state file to index ${{ steps.run_script.outputs.next_start_index }}" || true
+      git push
+    shell: bash
 
 
-      - name: Upload Production Package Artifact
-        uses: actions/upload-artifact@v4
-        if: success() && steps.run_script.outputs.videos_generated != '0'
-        with:
-          name: Production-Package-${{ github.run_id }}
-          path: ${{ steps.run_script.outputs.zip_path }}
+  # 3. प्रोडक्शन पैकेज आर्टिफैक्ट अपलोड करें
+  - name: Upload Production Package Artifact
+    uses: actions/upload-artifact@v4
+    # यह तभी रन हो जब स्क्रिप्ट सफल हो और कम से कम एक वीडियो जनरेट हुआ हो
+    if: success() && steps.run_script.outputs.videos_generated != '0'
+    with:
+      # run_id का उपयोग करें ताकि हर रन का एक यूनिक आर्टिफैक्ट नाम हो
+      name: Production-Package-${{ github.run_id }}
+      # Python स्क्रिप्ट से zip_path का उपयोग करें
+      path: ${{ steps.run_script.outputs.zip_path }}
+      retention-days: 7 # 7 दिनों के बाद आर्टिफैक्ट को हटा दिया जाएगा
