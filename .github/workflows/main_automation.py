@@ -434,7 +434,7 @@ def run_automation():
     print(json.dumps(result))
     return result
 
-if _name_ == "_main_": # <--- FIX: सिंगल अंडरस्कोर को डबल अंडरस्कोर से बदला गया
+if _name_ == "_main_": 
     try:
         run_automation()
     except Exception as e:
