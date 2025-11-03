@@ -1,5 +1,6 @@
 # आवश्यक Secrets को एनवायरनमेंट वेरिएबल्स में लोड करें। 
 # अब यह सीधे API Keys का उपयोग करेगा यदि वे Secrets में मौजूद हैं।
+jobs-
 env:
   GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
   YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
