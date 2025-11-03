@@ -1,37 +1,54 @@
-# आवश्यक Secrets को एनवायरनमेंट वेरिएबल्स में लोड करें। 
-# अब यह सीधे API Keys का उपयोग करेगा यदि वे Secrets में मौजूद हैं।
-jobs-
-jd
-env:
-  GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
-  YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-  YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-  YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} 
- # INSTAGRAM_USER_ID: ${{ secrets.INSTAGRAM_USER_ID }}
- # INSTAGRAM_ACCESS_TOKEN: ${{ secrets.INSTAGRAM_ACCESS_TOKEN }}
+# यह वर्कफ़्लो GitHub Actions टैब में 'JD YouTube Insta Automation' नाम से दिखाई देगा।
+name: JD YouTube Insta Automation
 
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
-  
-  - name: Set up Python
-    uses: actions/setup-python@v5
-    with:
-      python-version: '3.9'
+# 'workflow_dispatch' इसे Actions टैब से मैन्युअल रूप से चलाने की अनुमति देता है।
+on:
+  workflow_dispatch:
 
-  - name: Install dependencies (API & Libraries)
-    run: |
-      pip install pandas requests google-api-python-client google-auth google-auth-oauthlib 
-      pip install google-genai 
+# एक या अधिक jobs (कार्य) को परिभाषित करता है।
+jobs:
+  # यह job का नाम है
+  build-and-run:
+    # यह बताता है कि यह job किस ऑपरेटिंग सिस्टम पर चलेगा।
+    runs-on: ubuntu-latest
+    
+    # आवश्यक Secrets को एनवायरनमेंट वेरिएबल्स में लोड करें।
+    env:
+      GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
+      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} 
+    
+    # job के अंदर किए जाने वाले चरणों (steps) की सूची।
+    steps:
+      - name: Checkout repository
+        # यह action आपके कोड को GitHub runner पर क्लोन करता है।
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        # यह action Python 3.9 को सेटअप करता है।
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
 
-  - name: Run Main Automation Script
-    id: run_script
-    run: python main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}"
+      - name: Install dependencies (API & Libraries)
+        # आवश्यक Python लाइब्रेरीज को इंस्टॉल करता है।
+        run: |
+          pip install pandas requests google-api-python-client google-auth google-auth-oauthlib 
+          pip install google-genai 
+          # यदि आपकी main_automation.py में कोई और लाइब्रेरी चाहिए तो उसे यहाँ जोड़ें।
 
-  - name: Upload Production Package Artifact
-    uses: actions/upload-artifact@v4
-    if: success() && steps.run_script.outputs.videos_generated > 0
-    with:
-      name: ${{ steps.run_script.outputs.zip_path }}
-      path: ${{ steps.run_script.outputs.zip_path }}
+      - name: Run Main Automation Script
+        id: run_script
+        # आपकी मुख्य Python स्क्रिप्ट को चलाता है। 
+        run: python main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}"
+
+      - name: Upload Production Package Artifact
+        uses: actions/upload-artifact@v4
+        # यह सुनिश्चित करता है कि artifact तभी अपलोड हो जब स्क्रिप्ट सफलतापूर्वक चली हो 
+        # और 'videos_generated' आउटपुट 0 से अधिक हो।
+        if: success() && steps.run_script.outputs.videos_generated > 0
+        with:
+          name: ${{ steps.run_script.outputs.zip_path }}
+          path: ${{ steps.run_script.outputs.zip_path }}
