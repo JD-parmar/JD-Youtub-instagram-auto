@@ -10,31 +10,31 @@ import json
 import random
 import traceback
 
-# AI कंटेंट के लिए Google GenAI लाइब्रेरी (optional)
-try:
-    from google import genai
-    from google.genai.errors import APIError
-    GENAI_AVAILABLE = True
-except Exception:
-    GENAI_AVAILABLE = False
-
-# YouTube अपलोडिंग के लिए आवश्यक API क्लाइंट
+# --- Python Libraries for Google API Integration ---
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
+
+# AI कंटेंट के लिए Google GenAI लाइब्रेरी (optional)
 try:
+    from google import genai
+    from google.genai.errors import APIError
+    # YouTube अपलोडिंग क्रेडेंशियल के लिए आवश्यक
     from google.auth.transport.requests import Request as GoogleAuthRequest
+    GENAI_AVAILABLE = True
 except Exception:
-    GoogleAuthRequest = None
+    GENAI_AVAILABLE = False
+    GoogleAuthRequest = None # Fallback
+
 
 # --- कॉन्फ़िगरेशन ---
 STATE_FILE = "./.github/workflows/state.txt"
 MAX_VIDEOS_PER_RUN = 5 
 REQUIRED_COLS = ['Case_Study', 'Heading_Title', 'Prompt', 'Cinematic_Mode', 'Keywords_Tags', 'Video_Type', 'Schedule_Time', 'Instagram_Caption']
 OUTPUT_DIR = f"Production_Package_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-# सुधार 1: YouTube अपलोड स्कोप को सही किया गया है।
 YOUTUBE_UPLOAD_SCOPE = ["https://www.googleapis.com/auth/youtube.upload"]
+
 
 def integrate_gemini_for_content(seo_title, prompt, video_type, tags):
     print("🧠 Gemini AI कंटेंट जनरेशन शुरू...")
@@ -92,9 +92,11 @@ def integrate_gemini_for_content(seo_title, prompt, video_type, tags):
 
     except (APIError, json.JSONDecodeError, ValueError) as e:
         print(f"❌ Gemini API या पार्सिंग त्रुटि: {e}. सिमुलेशन पर वापस जा रहा है।")
+        # Recursively call the function to fall back to simulation mode
         return integrate_gemini_for_content(seo_title, prompt, video_type, tags)
     except Exception as e:
         print(f"❌ Gemini अनपेक्षित त्रुटि: {e}. सिमुलेशन पर वापस जा रहा है।")
+        # Recursively call the function to fall back to simulation mode
         return integrate_gemini_for_content(seo_title, prompt, video_type, tags)
 
 def get_youtube_service():
@@ -103,8 +105,8 @@ def get_youtube_service():
     client_secret = os.environ.get("YOUTUBE_CLIENT_SECRET")
     refresh_token = os.environ.get("YOUTUBE_REFRESH_TOKEN")
 
-    if not client_id or not client_secret or not refresh_token:
-        print("❌ YouTube Secrets अनुपलब्ध। अपलोड सिमुलेट होगा।")
+    if not client_id or not client_secret or not refresh_token or GoogleAuthRequest is None:
+        print("❌ YouTube Secrets अनुपलब्ध या आवश्यक लाइब्रेरी मिसिंग। अपलोड सिमुलेट होगा।")
         return None
 
     credentials = Credentials(
@@ -116,8 +118,6 @@ def get_youtube_service():
         scopes=YOUTUBE_UPLOAD_SCOPE
     )
     try:
-        if GoogleAuthRequest is None:
-            raise RuntimeError("google.auth.transport.requests.Request उपलब्ध नहीं है।")
         credentials.refresh(GoogleAuthRequest())
         youtube = build('youtube', 'v3', credentials=credentials)
         print("✅ YouTube सर्विस ऑब्जेक्ट सफलतापूर्वक बनाया गया।")
