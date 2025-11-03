@@ -1,7 +1,10 @@
 # यह सुनिश्चित करने के लिए कि कमिट स्टेप (git push) काम करे, यहां permissions जोड़ें
 permissions:
   contents: write # git push के लिए आवश्यक
-  
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+    
 # आवश्यक Secrets को एनवायरनमेंट वेरिएबल्स में लोड करें।
 env:
   GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
