@@ -26,7 +26,7 @@ jobs:
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas
+          pip install pandas google-api-python-client google-auth google-auth-oauthlib moviepy requests jq
 
       - name: Run Automation Script
         id: automation
@@ -42,22 +42,4 @@ jobs:
 
           echo "videos_generated=$videos"
           echo "zip_path=$zip"
-          echo "next_start_index=$next_index"
-
-          # Export as step outputs
-          echo "videos_generated=$videos" >> $GITHUB_OUTPUT
-          echo "zip_path=$zip" >> $GITHUB_OUTPUT
-          echo "next_start_index=$next_index" >> $GITHUB_OUTPUT
-
-      - name: Upload ZIP as Artifact
-        if: steps.automation.outputs.zip_path != ""
-        uses: actions/upload-artifact@v3
-        with:
-          name: video_package
-          path: ${{ steps.automation.outputs.zip_path }}
-
-      - name: Mock YouTube Upload
-        if: steps.automation.outputs.zip_path != ""
-        run: |
-          echo "Running mock YouTube upload..."
-          python main_automation.py upload-youtube "${{ steps.automation.outputs.zip_path }}"
+          echo "next_start_index=$next_in_
