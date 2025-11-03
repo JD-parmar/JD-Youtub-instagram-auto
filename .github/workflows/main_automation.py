@@ -12,7 +12,7 @@ from google import genai
 from google.genai import types
 
 # --- कॉन्फ़िगरेशन ---
-STATE_FILE_PATH = os.path.join(os.path.dirname(_file_), 'state.txt')
+STATE_FILE_PATH = os.path.join(os.path.dirname(__file__), 'state.txt')
 MAX_ITEMS_TO_PROCESS = 1 
 ZIP_FILE_NAME = "production_package.zip"
 TEMP_VIDEO_FILE_NAME = "temp_video_for_upload.mp4" # YouTube अपलोड के लिए एक अस्थायी फ़ाइल
