@@ -1,7 +1,6 @@
 name: Video Content Automation
 
 on:
-  # Run every Monday 09:00 IST (03:30 UTC)
   schedule:
     - cron: '30 3 * * 1' 
   workflow_dispatch:
@@ -31,9 +30,9 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install system & Python dependencies
+      - name: Install dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y jq
+          sudo apt-get update && sudo apt-get install -y jq zip
           pip install --upgrade pip
           pip install pandas requests google-api-python-client google-auth google-auth-oauthlib google-genai moviepy
         shell: bash
@@ -42,7 +41,6 @@ jobs:
         id: run_script
         run: |
           set -euo pipefail
-          echo "Running main_automation.py..."
           python .github/workflows/main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}" > script_output.json
           
           videos=$(jq -r '.videos_generated // 0' script_output.json)
@@ -53,8 +51,8 @@ jobs:
           echo "zip_path=$zip" >> $GITHUB_OUTPUT
           echo "next_start_index=$next_index" >> $GITHUB_OUTPUT
         shell: bash
-        
-      - name: Commit State File for Next Run
+
+      - name: Commit State File
         if: success() && steps.run_script.outputs.videos_generated != '0'
         run: |
           git config --global user.name "github-actions[bot]"
@@ -66,17 +64,28 @@ jobs:
 
       - name: Upload Videos to YouTube
         if: success() && steps.run_script.outputs.videos_generated != '0'
-        run: |
-          echo "Running YouTube Upload script..."
-          python .github/workflows/main_automation.py upload-youtube
+        run: python .github/workflows/main_automation.py upload-youtube
         shell: bash
 
-      # --- Upload Production Package Artifact (if ZIP exists) ---
+      # --- Ensure ZIP exists ---
+      - name: Ensure ZIP Exists for Artifact
+        id: zip_check
+        run: |
+          ZIP_PATH="${{ steps.run_script.outputs.zip_path }}"
+          if [ -z "$ZIP_PATH" ] || [ ! -f "$ZIP_PATH" ]; then
+            echo "ZIP not found, creating default artifact..."
+            mkdir -p artifacts
+            zip -r artifacts/production_package.zip .github/workflows/state.txt
+            ZIP_PATH="artifacts/production_package.zip"
+          fi
+          echo "zip_path=$ZIP_PATH" >> $GITHUB_OUTPUT
+        shell: bash
+
       - name: Upload Production Package Artifact
-        if: success() && steps.run_script.outputs.videos_generated != '0' && steps.run_script.outputs.zip_path != ''
+        if: success() && steps.run_script.outputs.videos_generated != '0'
         uses: actions/upload-artifact@v4
         with:
           name: Production-Package-${{ github.run_id }}
-          path: ${{ steps.run_script.outputs.zip_path }}
+          path: ${{ steps.zip_check.outputs.zip_path }}
           if-no-files-found: warn
           compression-level: 6
