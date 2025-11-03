@@ -1,15 +1,13 @@
 name: Video Content Automation
 
 on:
-  # यह वर्कफ़्लो को हर सोमवार सुबह 09:00 बजे IST (03:30 UTC) पर चलाता है 
+  # Run every Monday 09:00 IST (03:30 UTC)
   schedule:
     - cron: '30 3 * * 1' 
-  # वर्कफ़्लो को GitHub UI से मैन्युअल रूप से चलाने की अनुमति देता है
   workflow_dispatch:
 
-# CRITICAL FIX: GITHUB_TOKEN को 'contents: write' अनुमति दें ताकि यह 'state.txt' को कमिट कर सके
 permissions:
-  contents: write 
+  contents: write
   
 jobs:
   build-and-run:
@@ -33,7 +31,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install system & Python dependencies (API & Libraries)
+      - name: Install system & Python dependencies
         run: |
           sudo apt-get update && sudo apt-get install -y jq
           pip install --upgrade pip
@@ -47,21 +45,17 @@ jobs:
           echo "Running main_automation.py..."
           python .github/workflows/main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}" > script_output.json
           
-          # JSON आउटपुट को पार्स करें
           videos=$(jq -r '.videos_generated // 0' script_output.json)
           zip=$(jq -r '.zip_path // ""' script_output.json)
           next_index=$(jq -r '.next_start_index // 1' script_output.json)
           
-          echo "Parsed outputs: videos_generated=$videos, zip_path=$zip, next_start_index=$next_index"
-          
-          # GitHub Actions के लिए आउटपुट सेट करें
           echo "videos_generated=$videos" >> $GITHUB_OUTPUT
           echo "zip_path=$zip" >> $GITHUB_OUTPUT
           echo "next_start_index=$next_index" >> $GITHUB_OUTPUT
         shell: bash
         
       - name: Commit State File for Next Run
-        if: success() && steps.run_script.outputs.videos_generated != '0' 
+        if: success() && steps.run_script.outputs.videos_generated != '0'
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -71,27 +65,13 @@ jobs:
         shell: bash
 
       - name: Upload Videos to YouTube
-        if: success() && steps.run_script.outputs.videos_generated != '0' 
-        run: |
-          echo "Running YouTube Upload script..."
-          python .github/workflows/main_automation.py upload-youtube 
-        shell: bash
-
-      # --- Debug ZIP Path ---
-      - name: Debug ZIP Path
         if: success() && steps.run_script.outputs.videos_generated != '0'
         run: |
-          ZIP_PATH="${{ steps.run_script.outputs.zip_path }}"
-          echo "ZIP path: '$ZIP_PATH'"
-          if [ -z "$ZIP_PATH" ] || [ ! -f "$ZIP_PATH" ]; then
-            echo "ERROR: ZIP file not found at '$ZIP_PATH'"
-            ls -la
-            exit 1
-          else
-            echo "ZIP file exists at '$ZIP_PATH'"
-          fi
+          echo "Running YouTube Upload script..."
+          python .github/workflows/main_automation.py upload-youtube
         shell: bash
 
+      # --- Upload Production Package Artifact (if ZIP exists) ---
       - name: Upload Production Package Artifact
         if: success() && steps.run_script.outputs.videos_generated != '0' && steps.run_script.outputs.zip_path != ''
         uses: actions/upload-artifact@v4
