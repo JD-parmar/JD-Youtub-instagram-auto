@@ -32,23 +32,47 @@ jobs:
         with:
           python-version: '3.9'
 
-      - name: Install dependencies (API & Libraries)
-        # आवश्यक Python लाइब्रेरीज को इंस्टॉल करता है।
+      - name: Install system & Python dependencies (API & Libraries)
+        # आवश्यक Python लाइब्रेरीज को इंस्टॉल करता है और jq tool स्थापित करता है।
         run: |
-          pip install pandas requests google-api-python-client google-auth google-auth-oauthlib 
-          pip install google-genai 
+          sudo apt-get update && sudo apt-get install -y jq
+          pip install --upgrade pip
+          pip install pandas requests google-api-python-client google-auth google-auth-oauthlib google-genai
           # यदि आपकी main_automation.py में कोई और लाइब्रेरी चाहिए तो उसे यहाँ जोड़ें।
 
       - name: Run Main Automation Script
         id: run_script
-        # आपकी मुख्य Python स्क्रिप्ट को चलाता है। 
-        run: python main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}"
+        # आपकी मुख्य Python स्क्रिप्ट को चलाता है और अपेक्षित आउटपुट्स (videos_generated, zip_path) सेट करता है।
+        # NOTE: main_automation.py should emit a JSON object to stdout like:
+        # {"videos_generated": 2, "zip_path": "artifacts/videos.zip"}
+        run: |
+          set -euo pipefail
+          echo "Running main_automation.py..."
+          # === IMPORTANT CHANGE ===
+          # If your Python script is located at .github/workflows/main_automation.py
+          # run it with the relative path below. If you moved it to project root,
+          # use: python main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}"
+          python .github/workflows/main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}" > script_output.json
+          # validate script_output.json
+          if [ ! -s script_output.json ]; then
+            echo "script_output.json is empty or missing — assuming 0 videos generated"
+            echo "videos_generated=0" >> $GITHUB_OUTPUT
+            echo "zip_path=" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          # parse JSON using jq
+          videos=$(jq -r '.videos_generated // 0' script_output.json)
+          zip=$(jq -r '.zip_path // ""' script_output.json)
+          echo "Parsed outputs: videos_generated=$videos, zip_path=$zip"
+          echo "videos_generated=$videos" >> $GITHUB_OUTPUT
+          echo "zip_path=$zip" >> $GITHUB_OUTPUT
+        shell: bash
 
       - name: Upload Production Package Artifact
         uses: actions/upload-artifact@v4
-        # यह सुनिश्चित करता है कि artifact तभी अपलोड हो जब स्क्रिप्ट सफलतापूर्वक चली हो 
+        # यह सुनिश्चित करता है कि artifact तभी अपलोड हो जब स्क्रिप्ट सफलतापूर्वक चली हो
         # और 'videos_generated' आउटपुट 0 से अधिक हो।
-        if: success() && steps.run_script.outputs.videos_generated > 0
+        if: success() && steps.run_script.outputs.videos_generated != '0'
         with:
           name: ${{ steps.run_script.outputs.zip_path }}
           path: ${{ steps.run_script.outputs.zip_path }}
