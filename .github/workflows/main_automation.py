@@ -1,225 +1,235 @@
+# main_automation.py
+# --------------------------------------------------------------
 # यह स्क्रिप्ट GitHub Actions वर्कफ़्लो द्वारा चलाई जाती है।
-# इसमें डेटा लोडिंग, कंटेंट जेनरेशन (Gemini), स्टेट मैनेजमेंट, 
-# और YouTube अपलोड (प्लेसहोल्डर) के फ़ंक्शन शामिल हैं।
+# यह डेटा लोडिंग, Gemini कंटेंट जेनरेशन, ZIP पैकेज बनाना,
+# स्टेट मैनेजमेंट और (मॉक) YouTube अपलोड को हैंडल करती है।
+# --------------------------------------------------------------
 
 import sys
 import os
 import json
 import pandas as pd
 import zipfile
-from io import BytesIO
-from google import genai
-from google.genai import types
+import re
 
-# --- कॉन्फ़िगरेशन ---
+# --- Configuration ---
 STATE_FILE_PATH = os.path.join(os.path.dirname(__file__), 'state.txt')
-MAX_ITEMS_TO_PROCESS = 1 
+MAX_ITEMS_TO_PROCESS = 1
 ZIP_FILE_NAME = "production_package.zip"
-TEMP_VIDEO_FILE_NAME = "temp_video_for_upload.mp4" # YouTube अपलोड के लिए एक अस्थायी फ़ाइल
+TEMP_UPLOAD_DIR = "./temp_upload_dir"
 
-# YouTube Secrets (आवश्यक हैं)
+# Secrets (fetched from environment)
 YOUTUBE_CLIENT_ID = os.getenv('YOUTUBE_CLIENT_ID')
 YOUTUBE_CLIENT_SECRET = os.getenv('YOUTUBE_CLIENT_SECRET')
 YOUTUBE_REFRESH_TOKEN = os.getenv('YOUTUBE_REFRESH_TOKEN')
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 
+# --------------------------------------------------------------
+# Utility Functions
+# --------------------------------------------------------------
 def read_state(default_index=1):
     """राज्य फ़ाइल से अगले शुरुआती इंडेक्स को पढ़ता है।"""
+    if not os.path.exists(STATE_FILE_PATH):
+        with open(STATE_FILE_PATH, 'w', encoding='utf-8') as f:
+            f.write(str(default_index))
+        return default_index
+
     try:
-        with open(STATE_FILE_PATH, 'r') as f:
+        with open(STATE_FILE_PATH, 'r', encoding='utf-8') as f:
             return int(f.read().strip())
     except Exception as e:
-        print(f"WARN: Failed to read state file or file not found: {e}. Starting from index {default_index}.")
+        print(f"WARN: Failed to read state file: {e}. Starting from index {default_index}.")
         return default_index
+
 
 def write_state(next_index):
     """अगले रन के लिए नए शुरुआती इंडेक्स को राज्य फ़ाइल में लिखता है।"""
     try:
-        # केवल तभी लिखें जब इंडेक्स 1 से अधिक हो (अर्थात, कुछ संसाधित किया गया हो)
-        if next_index > 1:
-            with open(STATE_FILE_PATH, 'w') as f:
-                f.write(str(next_index))
-            print(f"INFO: Successfully updated state file to index {next_index}.")
+        with open(STATE_FILE_PATH, 'w', encoding='utf-8') as f:
+            f.write(str(next_index))
+        print(f"INFO: Updated state file → index {next_index}")
     except Exception as e:
         print(f"ERROR: Failed to write state file: {e}")
 
-def generate_content_with_gemini(api_key: str, prompt: str) -> str:
-    """Gemini API का उपयोग करके कंटेंट जनरेट करने का मॉक फ़ंक्शन।"""
-    if not api_key:
-        return f"MOCK CONTENT: No API Key provided for prompt: {prompt[:30]}..."
-    
-    # यहाँ वास्तविक Gemini API कॉल को लागू करें
-    try:
-        # client = genai.Client()
-        # ... API call logic ...
-        
-        topic_name = prompt.split('topic:')[1].strip() if 'topic:' in prompt else 'Default Topic'
-        mock_response = (
-            f"यह {topic_name} विषय पर आपके वीडियो का स्क्रिप्ट और कैप्शन है।\n"
-            f"कैप्शन: आज का सबसे बड़ा रहस्य जानें! | Video Title: {topic_name}\n"
-            f"Tags: automation, gemini, youtube, shorts"
-        )
-        return mock_response
-    except Exception as e:
-        print(f"GEMINI ERROR: Failed to generate content: {e}")
-        return "ERROR: Content generation failed."
 
-def mock_video_rendering(output_path: str):
-    """
-    वीडियो एडिटिंग लाइब्रेरी (जैसे: moviepy) का उपयोग करके
-    वीडियो फ़ाइल बनाने के लिए एक प्लेसहोल्डर फ़ंक्शन।
-    यह एक अस्थायी MP4 फ़ाइल बनाता है जिसे बाद में ZIP में जोड़ा जाता है।
-    """
-    print(f"INFO: Mock rendering video to {output_path}...")
+# --------------------------------------------------------------
+# Mock Gemini Content Generation
+# --------------------------------------------------------------
+def generate_joke_with_gemini(api_key: str, topic: str) -> str:
+    """Gemini API का उपयोग करके टॉपिक से संबंधित जोक जनरेट करने का मॉक फ़ंक्शन।"""
+    if not api_key:
+        return f"MOCK JOKE: बॉट ने वीडियो क्यों बनाया? क्योंकि उसे व्यूज़ चाहिए थे! (विषय: {topic})"
+    # असली Gemini API कॉल यहां जोड़ें
+    return f"MOCK JOKE: '{topic}' पर एक बार एक बॉट था जो कभी नहीं रुका!"
+
+
+def generate_content_with_gemini(api_key: str, topic: str) -> str:
+    """Gemini API का उपयोग करके कंटेंट जनरेट करने का मॉक फ़ंक्शन।"""
+    joke = generate_joke_with_gemini(api_key, topic)
+    current_index = read_state()
+
+    return (
+        f"--- वीडियो स्क्रिप्ट ---\n"
+        f"विषय: {topic}\n\n"
+        f"यह '{topic}' विषय पर एक छोटा वीडियो स्क्रिप्ट है।\n"
+        f"कैप्शन: आज का रहस्य जानिए!\n"
+        f"Video Title: {topic} (Index {current_index})\n"
+        f"Tags: automation, gemini, youtube, shorts\n\n"
+        f"--- आज का जोक ---\n{joke}\n"
+    )
+
+
+def mock_video_rendering(output_path: str) -> bool:
+    """वीडियो फ़ाइल बनाने का मॉक (डमी) फ़ंक्शन।"""
     try:
-        # वास्तविक वीडियो बनाने के बजाय, एक खाली फ़ाइल बनाएं (असली वीडियो के साइज़ का अनुकरण करने के लिए)
         with open(output_path, 'wb') as f:
-            # 1MB की डमी फ़ाइल बनाएं
-            f.write(b'\x00' * (1024 * 1024))
-        print(f"SUCCESS: Mock video file created at {output_path}")
+            f.write(b'\x00' * (500 * 1024))  # 500 KB dummy file
         return True
     except Exception as e:
-        print(f"VIDEO RENDER ERROR: Failed to create mock video file: {e}")
+        print(f"ERROR: Failed to create video: {e}")
         return False
 
-def upload_to_youtube(video_path: str, title: str, description: str, tags: list):
-    """
-    YouTube Data API v3 का उपयोग करके वीडियो अपलोड करने के लिए प्लेसहोल्डर फ़ंक्शन।
-    इस फ़ंक्शन को पूरी तरह से लागू करने की आवश्यकता है।
-    """
-    if not YOUTUBE_REFRESH_TOKEN:
-        print("CRITICAL: YOUTUBE_REFRESH_TOKEN is missing. Cannot upload.")
-        return False
-        
-    print(f"INFO: Attempting to upload video: {title} from {video_path}")
-    
-    # --- यहाँ YouTube API अपलोड लॉजिक लागू करें ---
-    
-    print(f"MOCK SUCCESS: Video '{title}' successfully uploaded to YouTube.")
-    return True
 
+# --------------------------------------------------------------
+# Main Automation Pipeline
+# --------------------------------------------------------------
 def run_automation_pipeline(csv_url: str, gemini_api_key: str):
-    """मुख्य स्वचालन तर्क को चलाता है।"""
+    """मुख्य ऑटोमेशन पाइपलाइन लॉजिक।"""
     start_index = read_state()
-    videos_generated = 0
     next_start_index = start_index
+    videos_generated = 0
+    current_zip_path = f"./{ZIP_FILE_NAME}"
 
-    # --- 1. Google शीट से डेटा लोड करें ---
     try:
         df = pd.read_csv(csv_url)
         df['index'] = df.index + 1
         rows_to_process = df[df['index'] >= start_index].head(MAX_ITEMS_TO_PROCESS)
-        
         if rows_to_process.empty:
-            print("INFO: No new rows to process. State index is up to date.")
+            print("INFO: कोई नया डेटा प्रोसेस करने के लिए नहीं है।")
             write_state(start_index)
-            return { "videos_generated": 0, "zip_path": "", "next_start_index": start_index }
-            
+            return {"videos_generated": 0, "zip_path": "", "next_start_index": start_index}
     except Exception as e:
-        print(f"CRITICAL ERROR: Failed to load data from CSV URL: {e}")
-        return { "videos_generated": 0, "zip_path": "", "next_start_index": start_index }
+        print(f"CRITICAL: CSV लोड करने में असफल - {e}")
+        return {"videos_generated": 0, "zip_path": "", "next_start_index": start_index}
 
-    # --- 2. कंटेंट जनरेट करें, वीडियो रेंडर करें और पैकेज बनाएं ---
-    # ZIP फ़ाइल को सीधे डिस्क पर बनाने के बजाय, हम इसे पहले BytesIO में बनाते हैं
-    # और अंत में एक बार में डिस्क पर लिखते हैं।
-    zip_buffer = BytesIO()
-    
-    for _, row in rows_to_process.iterrows():
-        current_row_index = row['index']
-        topic = row.get('Topic', f'Auto Topic {current_row_index}')
-        
-        # फ़ाइलों के नाम
-        script_file_name = f"script_{current_row_index}.txt"
-        video_file_name = f"video_{current_row_index}.mp4"
-        
-        try:
-            # 2.1 Gemini से स्क्रिप्ट/कैप्शन जनरेट करें
-            prompt = f"Generate a short social media video script and caption (in Hindi) for the following topic: {topic}."
-            generated_content = generate_content_with_gemini(gemini_api_key, prompt)
-            
-            # 2.2 वीडियो फ़ाइल को अस्थायी रूप से सेव करें
-            if not mock_video_rendering(video_file_name):
-                 raise Exception("Video rendering failed.")
+    # ZIP बनाना शुरू
+    try:
+        if os.path.exists(ZIP_FILE_NAME):
+            os.remove(ZIP_FILE_NAME)
 
-            # 2.3 ज़िप फ़ाइल में कंटेंट और वीडियो दोनों जोड़ें
-            with zipfile.ZipFile(zip_buffer, 'a', zipfile.ZIP_DEFLATED, False) as zip_file:
-                 zip_file.writestr(script_file_name, generated_content)
-                 zip_file.write(video_file_name, arcname=video_file_name)
-                 
-            # 2.4 अस्थायी वीडियो फ़ाइल हटाएँ
-            os.remove(video_file_name)
+        with zipfile.ZipFile(ZIP_FILE_NAME, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for _, row in rows_to_process.iterrows():
+                idx = row['index']
+                topic = row.get('Topic', f'Auto Topic {idx}')
 
-            videos_generated += 1
-            next_start_index = current_row_index + 1
-            
-            print(f"INFO: Successfully processed and packaged row {current_row_index}.")
+                script_name = f"script_{idx}.txt"
+                video_name = f"video_{idx}.mp4"
 
-        except Exception as e:
-            print(f"WARN: Failed to process row {current_row_index}: {e}. Skipping this row.")
-            # यदि कोई पंक्ति विफल हो जाती है, तो भी इंडेक्स को अगली पंक्ति पर ले जाएं
-            next_start_index = current_row_index + 1 
-            # सुनिश्चित करें कि असफल होने पर भी अस्थायी फ़ाइलें हटा दी जाती हैं
-            if os.path.exists(video_file_name):
-                 os.remove(video_file_name)
-            
-    
-    # --- 3. ZIP फ़ाइल को डिस्क पर लिखें ---
-    if videos_generated > 0:
-        try:
-            with open(ZIP_FILE_NAME, 'wb') as f:
-                f.write(zip_buffer.getvalue())
-            print(f"INFO: Created production package at {ZIP_FILE_NAME}")
-        except Exception as e:
-             print(f"CRITICAL ERROR: Failed to write ZIP file to disk: {e}")
-             videos_generated = 0 # यदि ZIP नहीं बन पाई, तो आर्टिफैक्ट अपलोड नहीं होगा
+                # कंटेंट जनरेट करें
+                content = generate_content_with_gemini(gemini_api_key, topic)
+                with open(script_name, 'w', encoding='utf-8') as f:
+                    f.write(content)
 
-    # --- 4. अगले रन के लिए स्टेट को अपडेट करें ---
+                # वीडियो बनाएँ
+                if not mock_video_rendering(video_name):
+                    print(f"WARN: Video rendering failed for {idx}")
+                    continue
+
+                # ZIP में ऐड करें
+                zipf.write(script_name)
+                zipf.write(video_name)
+
+                # क्लीनअप
+                os.remove(script_name)
+                os.remove(video_name)
+
+                videos_generated += 1
+                next_start_index = idx + 1
+                print(f"INFO: Successfully processed row {idx}")
+                break  # केवल एक वीडियो बनाना (MAX_ITEMS_TO_PROCESS = 1)
+    except Exception as e:
+        print(f"CRITICAL: ZIP निर्माण विफल - {e}")
+        videos_generated = 0
+
     write_state(next_start_index)
-    
+
     return {
         "videos_generated": videos_generated,
-        "zip_path": ZIP_FILE_NAME if videos_generated > 0 else "", 
-        "next_start_index": next_start_index
+        "zip_path": current_zip_path if videos_generated > 0 else "",
+        "next_start_index": next_start_index,
     }
 
-def run_youtube_upload_step():
-    """यह फ़ंक्शन YouTube पर अपलोड करने के लिए चलेगा।"""
-    print("INFO: Running YouTube upload step.")
-    
-    # यहाँ आपको ZIP फ़ाइल को खोलने और वीडियो फ़ाइलों को निकालने का लॉजिक डालना होगा।
-    # सरलता के लिए, हम एक मॉक अपलोड चला रहे हैं।
-    
-    # Mocking upload of the one generated video
-    mock_title = "My Latest Automation Video"
-    mock_description = "A video about automation generated using JD workflow."
-    mock_tags = ["automation", "youtube"]
-    
-    # अस्थायी रूप से एक मॉक वीडियो बनाएं (मान लें कि यह ZIP फ़ाइल से निकाला गया है)
-    if mock_video_rendering(TEMP_VIDEO_FILE_NAME):
-        upload_to_youtube(TEMP_VIDEO_FILE_NAME, mock_title, mock_description, mock_tags)
-        # अस्थायी फ़ाइल को हटा दें
-        os.remove(TEMP_VIDEO_FILE_NAME)
+
+# --------------------------------------------------------------
+# YouTube Upload (Mock)
+# --------------------------------------------------------------
+def upload_to_youtube(video_path: str, script_path: str) -> bool:
+    """YouTube पर वीडियो अपलोड करने का मॉक फ़ंक्शन।"""
+    if not os.path.exists(video_path) or not os.path.exists(script_path):
+        print(f"CRITICAL: Video या Script नहीं मिला: {video_path}, {script_path}")
+        return False
+
+    try:
+        with open(script_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        title = re.search(r'Video Title:\s*(.*)', content)
+        caption = re.search(r'कैप्शन:\s*(.*)', content)
+        title = title.group(1).strip() if title else "Default Title"
+        caption = caption.group(1).strip() if caption else "Default Caption"
+    except Exception as e:
+        print(f"WARN: Script पार्स करने में त्रुटि - {e}")
+        title, caption = "Default Title", "Default Caption"
+
+    print(f"MOCK UPLOAD: '{title}' → {video_path}")
+    return True
 
 
-def main():
-    """वर्कफ़्लो के दो अलग-अलग मोड को संभालता है।"""
-    # YouTube अपलोड स्टेप के लिए तर्क को संभालें
-    if len(sys.argv) > 1 and sys.argv[1] == 'upload-youtube':
-        run_youtube_upload_step()
+def run_youtube_upload_step(zip_file_path: str):
+    """ZIP फ़ाइल से वीडियो और स्क्रिप्ट निकालकर अपलोड करें।"""
+    if not os.path.exists(zip_file_path):
+        print(f"ERROR: ZIP नहीं मिला: {zip_file_path}")
         return
 
-    # मुख्य स्वचालन पाइपलाइन तर्क को संभालें
+    if os.path.exists(TEMP_UPLOAD_DIR):
+        os.system(f"rm -rf {TEMP_UPLOAD_DIR}")
+    os.makedirs(TEMP_UPLOAD_DIR, exist_ok=True)
+
+    try:
+        with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+            zip_ref.extractall(TEMP_UPLOAD_DIR)
+    except Exception as e:
+        print(f"ERROR: ZIP एक्सट्रैक्ट करने में विफल: {e}")
+        return
+
+    uploaded = 0
+    for file in os.listdir(TEMP_UPLOAD_DIR):
+        if file.endswith('.mp4'):
+            video_path = os.path.join(TEMP_UPLOAD_DIR, file)
+            script_path = video_path.replace('video_', 'script_').replace('.mp4', '.txt')
+            if upload_to_youtube(video_path, script_path):
+                uploaded += 1
+
+    print(f"INFO: Uploaded {uploaded} videos to YouTube (mock).")
+    os.system(f"rm -rf {TEMP_UPLOAD_DIR}")
+
+
+# --------------------------------------------------------------
+# Main Entrypoint
+# --------------------------------------------------------------
+def main():
+    if len(sys.argv) > 2 and sys.argv[1] == 'upload-youtube':
+        zip_path = sys.argv[2]
+        run_youtube_upload_step(zip_path)
+        return
+
     if len(sys.argv) < 2:
-        print("ERROR: Google Sheet CSV URL not provided.")
+        print("ERROR: CSV URL प्रदान नहीं किया गया।")
         sys.exit(1)
-        
+
     csv_url = sys.argv[1]
-    gemini_api_key = os.getenv('GEMINI_API_KEY')
-    
-    output = run_automation_pipeline(csv_url, gemini_api_key)
-    
-    # JSON आउटपुट stdout पर प्रिंट करें
+    output = run_automation_pipeline(csv_url, GEMINI_API_KEY)
     print(json.dumps(output))
 
 
-if __name__ == "_main_":
+if __name__ == "__main__":
     main()
