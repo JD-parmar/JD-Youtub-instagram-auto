@@ -1,8 +1,6 @@
 # main_automation.py
 # --------------------------------------------------------------
-# यह स्क्रिप्ट GitHub Actions वर्कफ़्लो द्वारा चलाई जाती है।
-# यह डेटा लोडिंग, Gemini कंटेंट जेनरेशन, ZIP पैकेज बनाना,
-# स्टेट मैनेजमेंट और (मॉक) YouTube अपलोड को हैंडल करती है।
+# Video Content Automation Script for GitHub Actions
 # --------------------------------------------------------------
 
 import sys
@@ -28,12 +26,10 @@ GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 # Utility Functions
 # --------------------------------------------------------------
 def read_state(default_index=1):
-    """राज्य फ़ाइल से अगले शुरुआती इंडेक्स को पढ़ता है।"""
     if not os.path.exists(STATE_FILE_PATH):
         with open(STATE_FILE_PATH, 'w', encoding='utf-8') as f:
             f.write(str(default_index))
         return default_index
-
     try:
         with open(STATE_FILE_PATH, 'r', encoding='utf-8') as f:
             return int(f.read().strip())
@@ -43,7 +39,6 @@ def read_state(default_index=1):
 
 
 def write_state(next_index):
-    """अगले रन के लिए नए शुरुआती इंडेक्स को राज्य फ़ाइल में लिखता है।"""
     try:
         with open(STATE_FILE_PATH, 'w', encoding='utf-8') as f:
             f.write(str(next_index))
@@ -51,23 +46,18 @@ def write_state(next_index):
     except Exception as e:
         print(f"ERROR: Failed to write state file: {e}")
 
-
 # --------------------------------------------------------------
 # Mock Gemini Content Generation
 # --------------------------------------------------------------
 def generate_joke_with_gemini(api_key: str, topic: str) -> str:
-    """Gemini API का उपयोग करके टॉपिक से संबंधित जोक जनरेट करने का मॉक फ़ंक्शन।"""
     if not api_key:
         return f"MOCK JOKE: बॉट ने वीडियो क्यों बनाया? क्योंकि उसे व्यूज़ चाहिए थे! (विषय: {topic})"
-    # असली Gemini API कॉल यहां जोड़ें
     return f"MOCK JOKE: '{topic}' पर एक बार एक बॉट था जो कभी नहीं रुका!"
 
 
 def generate_content_with_gemini(api_key: str, topic: str) -> str:
-    """Gemini API का उपयोग करके कंटेंट जनरेट करने का मॉक फ़ंक्शन।"""
     joke = generate_joke_with_gemini(api_key, topic)
     current_index = read_state()
-
     return (
         f"--- वीडियो स्क्रिप्ट ---\n"
         f"विषय: {topic}\n\n"
@@ -80,7 +70,6 @@ def generate_content_with_gemini(api_key: str, topic: str) -> str:
 
 
 def mock_video_rendering(output_path: str) -> bool:
-    """वीडियो फ़ाइल बनाने का मॉक (डमी) फ़ंक्शन।"""
     try:
         with open(output_path, 'wb') as f:
             f.write(b'\x00' * (500 * 1024))  # 500 KB dummy file
@@ -89,12 +78,10 @@ def mock_video_rendering(output_path: str) -> bool:
         print(f"ERROR: Failed to create video: {e}")
         return False
 
-
 # --------------------------------------------------------------
 # Main Automation Pipeline
 # --------------------------------------------------------------
 def run_automation_pipeline(csv_url: str, gemini_api_key: str):
-    """मुख्य ऑटोमेशन पाइपलाइन लॉजिक।"""
     start_index = read_state()
     next_start_index = start_index
     videos_generated = 0
@@ -112,7 +99,6 @@ def run_automation_pipeline(csv_url: str, gemini_api_key: str):
         print(f"CRITICAL: CSV लोड करने में असफल - {e}")
         return {"videos_generated": 0, "zip_path": "", "next_start_index": start_index}
 
-    # ZIP बनाना शुरू
     try:
         if os.path.exists(ZIP_FILE_NAME):
             os.remove(ZIP_FILE_NAME)
@@ -125,28 +111,28 @@ def run_automation_pipeline(csv_url: str, gemini_api_key: str):
                 script_name = f"script_{idx}.txt"
                 video_name = f"video_{idx}.mp4"
 
-                # कंटेंट जनरेट करें
+                # Generate content
                 content = generate_content_with_gemini(gemini_api_key, topic)
                 with open(script_name, 'w', encoding='utf-8') as f:
                     f.write(content)
 
-                # वीडियो बनाएँ
+                # Render video
                 if not mock_video_rendering(video_name):
                     print(f"WARN: Video rendering failed for {idx}")
                     continue
 
-                # ZIP में ऐड करें
+                # Add to ZIP
                 zipf.write(script_name)
                 zipf.write(video_name)
 
-                # क्लीनअप
+                # Cleanup
                 os.remove(script_name)
                 os.remove(video_name)
 
                 videos_generated += 1
                 next_start_index = idx + 1
                 print(f"INFO: Successfully processed row {idx}")
-                break  # केवल एक वीडियो बनाना (MAX_ITEMS_TO_PROCESS = 1)
+                break
     except Exception as e:
         print(f"CRITICAL: ZIP निर्माण विफल - {e}")
         videos_generated = 0
@@ -159,12 +145,10 @@ def run_automation_pipeline(csv_url: str, gemini_api_key: str):
         "next_start_index": next_start_index,
     }
 
-
 # --------------------------------------------------------------
 # YouTube Upload (Mock)
 # --------------------------------------------------------------
 def upload_to_youtube(video_path: str, script_path: str) -> bool:
-    """YouTube पर वीडियो अपलोड करने का मॉक फ़ंक्शन।"""
     if not os.path.exists(video_path) or not os.path.exists(script_path):
         print(f"CRITICAL: Video या Script नहीं मिला: {video_path}, {script_path}")
         return False
@@ -185,7 +169,6 @@ def upload_to_youtube(video_path: str, script_path: str) -> bool:
 
 
 def run_youtube_upload_step(zip_file_path: str):
-    """ZIP फ़ाइल से वीडियो और स्क्रिप्ट निकालकर अपलोड करें।"""
     if not os.path.exists(zip_file_path):
         print(f"ERROR: ZIP नहीं मिला: {zip_file_path}")
         return
@@ -211,7 +194,6 @@ def run_youtube_upload_step(zip_file_path: str):
 
     print(f"INFO: Uploaded {uploaded} videos to YouTube (mock).")
     os.system(f"rm -rf {TEMP_UPLOAD_DIR}")
-
 
 # --------------------------------------------------------------
 # Main Entrypoint
