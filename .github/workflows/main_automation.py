@@ -33,7 +33,7 @@ STATE_FILE = "./.github/workflows/state.txt"
 MAX_VIDEOS_PER_RUN = 5 
 REQUIRED_COLS = ['Case_Study', 'Heading_Title', 'Prompt', 'Cinematic_Mode', 'Keywords_Tags', 'Video_Type', 'Schedule_Time', 'Instagram_Caption']
 OUTPUT_DIR = f"Production_Package_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-YOUTUBE_UPLOAD_SCOPE = ["https://www.googleapis.com/auth/youtube.upload"]
+YOUTUBE_UPLOAD_SCOPE = ["https://www.google.api_core.com/auth/youtube.upload"]
 
 def integrate_gemini_for_content(seo_title, prompt, video_type, tags):
     print("🧠 Gemini AI कंटेंट जनरेशन शुरू...")
