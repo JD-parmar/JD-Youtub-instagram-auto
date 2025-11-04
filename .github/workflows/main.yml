@@ -1,12 +1,9 @@
 name: Free Video Generator
 
 on:
-  workflow_dispatch:     # manual trigger
+  workflow_dispatch:
   schedule:
-    - cron: "0 2 * * *"  # run daily at 2 AM UTC
-
-permissions:
-  contents: write
+    - cron: "0 2 * * *"
 
 jobs:
   generate:
@@ -26,27 +23,21 @@ jobs:
 
       - name: Install dependencies
         run: |
-          echo "Installing dependencies..."
+          echo "Upgrading pip and installing dependencies..."
           python -m pip install --upgrade pip setuptools wheel
-          pip install pandas moviepy imageio[ffmpeg]
+          python -m pip install pandas moviepy imageio[ffmpeg]
           python -m pip show moviepy
-          echo "✅ MoviePy installed successfully."
 
-      - name: Verify import
+      - name: Verify MoviePy
         run: |
-          python - <<'EOF'
-          import moviepy
-          print("✅ MoviePy import test passed.")
-          EOF
+          python -c "from moviepy.editor import TextClip, CompositeVideoClip, ColorClip; print('✅ MoviePy import works')"
 
       - name: Run automation script
-        id: run
         run: |
-          echo "Running main automation script..."
           python .github/workflows/main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}" > output.json
           cat output.json
 
-      - name: Upload Generated ZIP
+      - name: Upload ZIP artifact
         uses: actions/upload-artifact@v4
         with:
           name: Generated-Videos
