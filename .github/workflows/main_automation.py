@@ -1,6 +1,6 @@
-# === Video Content Automation (Free & GitHub-Compatible) ===
-# Generates simple text videos from a Google Sheet (CSV)
-# 100% free, uses only MoviePy (no paid APIs)
+# === Free Video Automation Script (GitHub Compatible) ===
+# Generates 2 simple videos per run using text from a Google Sheet (CSV)
+# 100% free – uses MoviePy only.
 
 import os
 import sys
@@ -11,12 +11,13 @@ from moviepy.editor import TextClip, CompositeVideoClip, ColorClip
 
 # --- Config ---
 STATE_FILE_PATH = os.path.join(os.path.dirname(__file__), 'state.txt')
-MAX_ITEMS_TO_PROCESS = 2   # how many videos per run
+MAX_ITEMS_TO_PROCESS = 2   # <-- Generate 2 videos per run
 ZIP_FILE_NAME = "production_package.zip"
 TEMP_UPLOAD_DIR = "./temp_upload_dir"
 
 # --- Utilities ---
 def read_state(default_index=1):
+    """Reads current processing index from state.txt."""
     try:
         with open(STATE_FILE_PATH, 'r') as f:
             return int(f.read().strip())
@@ -24,6 +25,7 @@ def read_state(default_index=1):
         return default_index
 
 def write_state(next_index):
+    """Writes the next index to process into state.txt."""
     try:
         with open(STATE_FILE_PATH, 'w') as f:
             f.write(str(next_index))
@@ -33,7 +35,7 @@ def write_state(next_index):
 
 # --- Video Creation ---
 def create_video(output_path: str, text: str):
-    """Creates a simple black background video with text."""
+    """Creates a short video with text using MoviePy."""
     try:
         bg = ColorClip(size=(720, 1280), color=(0, 0, 0), duration=10)
         txt = TextClip(
@@ -52,8 +54,9 @@ def create_video(output_path: str, text: str):
         print(f"ERROR: Could not create video: {e}")
         return False
 
-# --- Main Automation ---
+# --- Main Pipeline ---
 def run_pipeline(csv_url: str):
+    """Reads the CSV and generates videos."""
     start_index = read_state()
     videos_generated = 0
     next_start_index = start_index
@@ -64,6 +67,7 @@ def run_pipeline(csv_url: str):
         df['index'] = df.index + 1
         rows = df[df['index'] >= start_index].head(MAX_ITEMS_TO_PROCESS)
         if rows.empty:
+            print("INFO: No new topics found.")
             write_state(start_index)
             return {"videos_generated": 0, "zip_path": "", "next_start_index": start_index}
     except Exception as e:
