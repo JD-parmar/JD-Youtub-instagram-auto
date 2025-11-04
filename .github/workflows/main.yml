@@ -1,91 +1,42 @@
-name: Video Content Automation
+name: Free Video Generator
 
 on:
-  schedule:
-    - cron: '30 3 * * 1' 
   workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * *"  # runs daily at 2 AM UTC
 
 permissions:
   contents: write
-  
+
 jobs:
-  build-and-run:
+  generate:
     runs-on: ubuntu-latest
-    
+
     env:
       GOOGLE_SHEET_CSV_URL: ${{ secrets.GOOGLE_SHEET_CSV_URL }}
-      YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-      YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-      YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }} 
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Install dependencies
         run: |
-          sudo apt-get update && sudo apt-get install -y jq zip
           pip install --upgrade pip
-          pip install pandas requests google-api-python-client google-auth google-auth-oauthlib google-genai moviepy
-        shell: bash
+          pip install pandas moviepy
 
-      - name: Run Main Automation Script and Get Outputs
-        id: run_script
+      - name: Run automation script
+        id: run
         run: |
-          set -euo pipefail
-          python .github/workflows/main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}" > script_output.json
-          
-          videos=$(jq -r '.videos_generated // 0' script_output.json)
-          zip=$(jq -r '.zip_path // ""' script_output.json)
-          next_index=$(jq -r '.next_start_index // 1' script_output.json)
-          
-          echo "videos_generated=$videos" >> $GITHUB_OUTPUT
-          echo "zip_path=$zip" >> $GITHUB_OUTPUT
-          echo "next_start_index=$next_index" >> $GITHUB_OUTPUT
-        shell: bash
+          python .github/workflows/main_automation.py "${{ env.GOOGLE_SHEET_CSV_URL }}" > output.json
+          cat output.json
 
-      - name: Commit State File
-        if: success() && steps.run_script.outputs.videos_generated != '0'
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/workflows/state.txt
-          git commit -m "Automation: Updated state file to index ${{ steps.run_script.outputs.next_start_index }}" || true
-          git push
-        shell: bash
-
-      - name: Upload Videos to YouTube
-        if: success() && steps.run_script.outputs.videos_generated != '0'
-        run: python .github/workflows/main_automation.py upload-youtube
-        shell: bash
-
-      # --- Ensure ZIP exists ---
-      - name: Ensure ZIP Exists for Artifact
-        id: zip_check
-        run: |
-          ZIP_PATH="${{ steps.run_script.outputs.zip_path }}"
-          if [ -z "$ZIP_PATH" ] || [ ! -f "$ZIP_PATH" ]; then
-            echo "ZIP not found, creating default artifact..."
-            mkdir -p artifacts
-            zip -r artifacts/production_package.zip .github/workflows/state.txt
-            ZIP_PATH="artifacts/production_package.zip"
-          fi
-          echo "zip_path=$ZIP_PATH" >> $GITHUB_OUTPUT
-        shell: bash
-
-      - name: Upload Production Package Artifact
-        if: success() && steps.run_script.outputs.videos_generated != '0'
+      - name: Upload videos ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: Production-Package-${{ github.run_id }}
-          path: ${{ steps.zip_check.outputs.zip_path }}
-          if-no-files-found: warn
-          compression-level: 6
+          name: Generated-Videos
+          path: production_package.zip
